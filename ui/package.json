@@ -1,0 +1,7 @@
+{
+  "name": "gpu-gate-console",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

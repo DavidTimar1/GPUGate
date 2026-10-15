@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPUGate</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="dist/app.css">
+<script src="vendor/htmx/htmx.min.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="brandwide" aria-hidden="true"><span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7V4M12 7V4M17 7V4M7 20v-3M12 20v-3M17 20v-3"/></svg>GPUGate</span></div>
+<header class="topbar">
+  <button class="ibtn ham" id="ham" type="button" aria-label="Open the menu" aria-expanded="false" aria-controls="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <span class="brand"><span class="vh">GPUGate</span><span aria-hidden="true">GPUGate</span></span>
+  <button class="pill" id="statuspill" type="button" aria-label="Machines: none running"><span class="dot"></span><span class="ptxt" id="pilltxt">Idle</span></button>
+  <button class="ibtn" id="theme-toggle" type="button" aria-label="Switch to dark mode"></button>
+  <button class="ibtn" id="log-toggle" type="button" aria-label="Open the console log" aria-expanded="false" aria-controls="log-panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span class="badge" id="logbadge" title="A recent line failed" hidden></span></button>
+</header>
+
+<div class="scrim" id="navscrim" hidden></div>
+<nav class="nav" id="nav" aria-label="Main">
+  <div class="nav-head"><span class="brand">GPUGate</span><button class="ibtn nav-close" id="navclose" type="button" aria-label="Close the menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <a href="#machines" data-view="machines"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>Machines<span class="count" id="navcount"></span></a>
+  <a href="#projects" data-view="projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>Projects<span class="count" id="projcount"></span></a>
+  <a href="#sessions" data-view="sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Sessions</a>
+  <form class="logout" method="post" action="/logout"><button class="btn sm" type="submit">Log out</button></form>
+  <p class="foot">Opened on <span class="mono" id="origin"></span></p>
+</nav>
+
+<main id="main" tabindex="-1">
+
+<!-- =============== MACHINES =============== -->
+<div class="view" id="v-machines">
+  <header><h1>Machines</h1><p>Rent, watch and destroy.</p></header>
+
+  <section aria-labelledby="run-h" id="running">
+    <div class="sec-head"><h2 id="run-h" tabindex="-1">Running now</h2><span class="chip plain" id="runstamp" hidden></span></div>
+    <ul class="rlist" id="rlist" aria-live="polite" hx-get="/api/running" hx-trigger="load, every 5s" hx-swap="innerHTML">
+      <li class="card empty">Asking both providers what is running&hellip;</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="setup-h">
+    <div class="sec-head"><h2 id="setup-h">What to run</h2></div>
+    <div class="card pad">
+      <div class="frow setup">
+        <div class="field model">
+          <label class="lab" for="model-select">Model</label>
+          <select id="model-select" name="model" autocomplete="off"><option value="">Choose a model</option></select>
+        </div>
+        <div class="field">
+          <div class="lab"><label for="ctx">Context (k)</label><button class="info" type="button" aria-expanded="false" aria-controls="ctx-note" aria-label="About Context"><span aria-hidden="true">i</span></button></div>
+          <input type="number" id="ctx" name="context_thousands" autocomplete="off" value="256" min="1" inputmode="numeric">
+          <p class="note" id="ctx-note" hidden></p>
+        </div>
+        <div class="field">
+          <div class="lab"><label for="chats">Chats</label><button class="info" type="button" aria-expanded="false" aria-controls="chats-note" aria-label="About Chats"><span aria-hidden="true">i</span></button></div>
+          <input type="number" id="chats" name="chats" autocomplete="off" value="10" min="1" inputmode="numeric">
+          <p class="note" id="chats-note" hidden></p>
+        </div>
+        <div class="field" id="batch-vllm">
+          <div class="lab"><label for="batched-tokens">Max batched tokens</label><button class="info" type="button" aria-expanded="false" aria-controls="batched-tokens-note" aria-label="About Max batched tokens"><span aria-hidden="true">i</span></button></div>
+          <input type="number" id="batched-tokens" name="max_num_batched_tokens" autocomplete="off" min="1" inputmode="numeric">
+          <p class="note" id="batched-tokens-note" hidden>A per-step budget shared by all chats: how many prompt tokens the engine works on in one step. A longer prompt is read in several steps. Sent with each launch and never saved. Empty means GPUGate derives it from the context and chats.</p>
+        </div>
+      </div>
+      <div class="frow setup" id="batch-gguf" hidden></div>
+
+      <!-- Its own <form>, so Enter in a box here can only submit Save and never launch a machine. -->
+      <form id="model-settings-form" hidden>
+        <details class="ms" id="ms">
+          <summary>Model settings</summary>
+          <button type="button" class="info allinfo" id="expall" aria-expanded="false" aria-label="Explain every model setting"><span aria-hidden="true">i</span></button>
+          <div class="frow msgrid" id="msgrid"></div>
+          <div class="msact">
+            <button class="btn primary" type="submit" id="model-settings-save">Save as this model's default</button>
+          </div>
+        </details>
+      </form>
+    </div>
+  </section>
+
+  <section aria-labelledby="inst-h">
+    <div class="sec-head"><h2 id="inst-h">Machines on offer</h2><button class="btn sm" id="refresh-btn" type="button">Refresh</button></div>
+    <div class="tools">
+      <div class="row1">
+        <div><label class="vh" for="search-box">Search machines</label><input type="search" id="search-box" name="search" autocomplete="off" placeholder="Search machine, card, provider, region"></div>
+        <button class="btn filtbtn" id="filtbtn" type="button" aria-expanded="false" aria-controls="filters">Filters<span id="filtn"></span></button>
+        <div class="seg" role="radiogroup" aria-label="Which rows to show">
+          <label><input type="radio" id="show-allowed" name="show-mode" autocomplete="off" value="selected" checked>Allowed</label>
+          <label><input type="radio" id="show-all" name="show-mode" autocomplete="off" value="all">All</label>
+        </div>
+      </div>
+      <div class="filters-panel frow" id="filters">
+        <div class="field"><label class="lab" for="filter-provider">Provider</label>
+          <select id="filter-provider" name="filter_provider" autocomplete="off"><option value="">All providers</option></select></div>
+        <div class="field"><span class="lab" aria-hidden="true"></span><label class="check"><input type="checkbox" id="filter-available" name="filter_available" autocomplete="off">Available now</label></div>
+        <div class="field"><span class="lab" aria-hidden="true"></span><label class="check"><input type="checkbox" id="filter-has-model" name="filter_fits_model" autocomplete="off">Fits the chosen model</label></div>
+      </div>
+      <div class="mobile-sort"><label for="mobile-sort-select">Sort by</label><select id="mobile-sort-select" name="sort" autocomplete="off"></select></div>
+      <p class="count-line" id="visible-count" role="status" aria-live="polite"></p>
+    </div>
+    <div class="tblwrap">
+      <table aria-describedby="visible-count">
+        <thead><tr>
+          <th scope="col" class="plainth">Allowed</th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="instance" type="button">Machine<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="provider" type="button">Provider<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="card" type="button">Card<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="vram" type="button">VRAM, all cards<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="cost" type="button">$/hr<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="availability" type="button">Availability<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" aria-sort="none"><button class="sortb sort-th" data-col="models" type="button">Room for the model<span aria-hidden="true" class="sort-ind"></span></button></th>
+          <th scope="col" class="plainth"><span class="vh">Action</span></th>
+        </tr></thead>
+        <tbody id="instance-body"></tbody>
+      </table>
+      <div class="overlay" id="table-overlay">Loading the table from both providers&hellip;</div>
+    </div>
+  </section>
+</div>
+
+<!-- =============== PROJECTS =============== -->
+<div class="view" id="v-projects" hidden>
+  <header><h1>Projects</h1><p>Each project has its own fixed address.</p></header>
+  <section aria-labelledby="pl-h">
+    <h2 id="pl-h" class="vh">Project list</h2>
+    <ul class="rlist" id="project-list"></ul>
+  </section>
+  <section aria-labelledby="pc-h">
+    <div class="sec-head"><h2 id="pc-h">Price cap</h2></div>
+    <form class="card frow newproj" id="price-cap-form">
+      <div class="field"><label class="lab" for="price-cap-usd">Most per hour, US dollars</label><input type="text" id="price-cap-usd" name="price_cap_usd" inputmode="decimal" autocomplete="off" placeholder="no cap"><p class="note">One ceiling for every project. Launch and the auto-move refuse a machine priced over it, or with no price. Empty means no cap. Machines already running are not touched.</p></div>
+      <div class="field"><span class="lab" aria-hidden="true"></span><button class="btn primary" type="submit">Save cap</button></div>
+    </form>
+  </section>
+  <section aria-labelledby="np-h">
+    <div class="sec-head"><h2 id="np-h">New project</h2></div>
+    <form class="card frow newproj" id="new-project-form" hx-post="/api/projects" hx-target="#new-project-result" hx-swap="innerHTML">
+      <div class="field"><label class="lab" for="new-project-slug">Slug</label><input type="text" id="new-project-slug" name="slug" autocomplete="off" placeholder="bench" pattern="[a-z][a-z0-9\-]{0,31}" required autocapitalize="none"></div>
+      <div class="field"><label class="lab" for="new-project-name">Name</label><input type="text" id="new-project-name" name="name" autocomplete="off" placeholder="Bench" required></div>
+      <div class="field"><span class="lab" aria-hidden="true"></span><button class="btn primary" type="submit">Create project</button></div>
+      <span id="new-project-result" hidden></span>
+    </form>
+  </section>
+</div>
+
+<!-- =============== SESSIONS =============== -->
+<div class="view" id="v-sessions" hidden>
+  <header><h1>Sessions</h1><p>Every rental that reached a real machine, newest first.</p></header>
+  <div class="totals" id="session-totals"></div>
+  <div class="sec-head"><h2 id="sl-h">Last 50 rentals</h2>
+    <div class="sec-acts"><button class="btn sm" id="sessions-clear-btn" type="button">Clear list</button><button class="info" type="button" aria-expanded="false" aria-controls="n-scount" aria-label="About the token counts"><span aria-hidden="true">i</span></button></div></div>
+  <p class="note" id="n-scount" hidden>Tokens in, out and read from cache are counted only for requests sent through <code>/p/&lt;project&gt;</code>. Clear list moves where the list starts reading from; no past rental is deleted.</p>
+  <div id="session-body" hx-get="/api/sessions" hx-trigger="load, every 30s" hx-swap="innerHTML"><p class="card empty">Reading past and present sessions&hellip;</p></div>
+</div>
+
+</main>
+
+<!-- Console drawer (right) -->
+<div class="scrim" id="log-scrim" hidden></div>
+<aside class="logp" id="log-panel" role="dialog" aria-modal="true" aria-label="Console log">
+  <header><h2>Console log</h2><button class="ibtn" id="log-close" type="button" aria-label="Close the console log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <div class="opts"><label class="check"><input type="checkbox" id="log-show-all" name="log_show_all" autocomplete="off">Show everything</label></div>
+  <div id="log-body"></div>
+</aside>
+
+<!-- Confirm sheet (Delete machine, Delete project, Clear list) -->
+<div class="modalbg" id="modal-bg" hidden>
+  <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-desc">
+    <h3 id="modal-title">Destroy this machine?</h3>
+    <p id="modal-desc"></p>
+    <div class="tgt mono" id="modal-target"></div>
+    <div class="acts"><button class="btn" id="modal-cancel" type="button">Cancel</button><button class="btn solid-danger" id="modal-confirm" type="button">Destroy machine</button></div>
+  </div>
+</div>
+
+<!-- The one fixed overlay for every error and message the page shows. -->
+<div class="msgs" id="msgs" role="alert" aria-live="assertive"></div>
+
+<script src="dist/app.js"></script>
+</body>
+</html>

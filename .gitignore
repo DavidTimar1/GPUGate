@@ -1,0 +1,25 @@
+# The credentials file. example.env is the tracked template and is not matched by these.
+.env
+.env.*
+
+# Working state the program writes beside itself: its database, pid file, log and pod keys.
+.state/
+
+# The SSH key for Verda machines (.ssh/verda/private).
+.ssh/
+
+# Scratch space.
+.tmp/
+
+# The built binary, in dist/ at the project root. ui/dist is the built page and is tracked.
+/dist/
+
+# Logs, database copies and key material.
+*.log
+*.db
+*.pem
+*.key
+
+# Editor and system files.
+.DS_Store
+Thumbs.db

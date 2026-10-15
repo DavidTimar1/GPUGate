@@ -1,0 +1,5 @@
+# Text files are stored and checked out with LF on every system, so gate.sh runs everywhere.
+* text=auto eol=lf
+
+# The fonts are binary.
+*.woff2 binary
