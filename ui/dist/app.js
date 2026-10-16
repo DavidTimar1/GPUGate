@@ -26,6 +26,7 @@ var THEME_KEY = "gg-console-theme";
 var THEME_ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
 var THEME_ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>';
 var X_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 // ---------------------------------------------------------------------------------------------
 // Login. Any answer of 401 means the session is gone (a restart, a password reset, thirty days):
@@ -1113,9 +1114,11 @@ function openLaunchRowFor(tr, s) {
   var td = document.createElement("td");
   td.colSpan = TABLE_COLUMNS;
   var why = rowCannotLaunchReason(s);
-  td.innerHTML = why === ""
-    ? launchPanelHTML(s, null)
-    : '<div class="whybox" role="status"><p>' + escapeHtml(why) + '</p><button class="x lp-cancel" type="button" aria-label="Close this message">' + X_ICON + "</button></div>";
+  if (why !== "") {
+    showMsg(why, "warn");
+    return;
+  }
+  td.innerHTML = launchPanelHTML(s, null);
   row.appendChild(td);
   tr.parentNode.insertBefore(row, tr.nextSibling);
   openLaunchRow = row;
@@ -1507,43 +1510,18 @@ async function loadProjects() {
   }
   var data = await response.json();
   state.projects = data.projects || [];
-  renderPriceCap(data.price_cap_per_hour);
   renderProjectsBlock();
 }
 
-// The price cap box shows the saved value, empty for no cap. A box the person is typing in is
-// left alone: a reload of the projects (see runningSignature) must not overwrite a half-typed
-// figure.
-function renderPriceCap(cap) {
-  var input = byId("price-cap-usd");
-  if (document.activeElement === input) return;
-  input.value = (cap === null || cap === undefined) ? "" : String(cap);
-}
-
-byId("price-cap-form").addEventListener("submit", async function (ev) {
-  ev.preventDefault();
-  var input = byId("price-cap-usd");
-  var button = ev.target.querySelector("button[type=submit]");
-  button.disabled = true;
-  try {
-    var response = await fetch("/api/settings/price-cap?usd=" + encodeURIComponent(input.value.trim()), { method: "POST" });
-    var body = await response.json().catch(function () { return {}; });
-    if (!response.ok) {
-      showMsg(body.detail || "Could not save the price cap.");
-    } else {
-      input.blur();
-      renderPriceCap(body.price_cap_per_hour);
-    }
-  } catch (e) {
-    showMsg("Could not reach the server to save the price cap.");
-  } finally {
-    button.disabled = false;
-  }
-});
+var PRICE_CAP_ABOUT = "Launch and the auto-move for this project refuse a machine priced over it, or with no price. Empty means no cap. Saves when you leave the box. Machines already running are not touched.";
 
 var AUTO_MOVE_ABOUT = "Off by default. When on, GPUGate looks for a cheaper allowed machine that fits the same launch when you switch it on, when the machine starts serving, and every three minutes. It rents it, moves this address over once it serves, and destroys the old one after a clean minute. It never picks a model or a machine you did not allow.";
 
 function renderProjectsBlock() {
+  // A reload of the projects (see runningSignature) must not wipe a cap box being typed in: the
+  // list is left as it is while one has focus, and the next reload draws it.
+  var active = document.activeElement;
+  if (active && active.classList && active.classList.contains("project-cap-box")) return;
   byId("projcount").textContent = String(state.projects.length);
   byId("project-list").innerHTML = state.projects.map(function (p) {
     var address = location.origin + "/p/" + p.slug + "/v1";
@@ -1551,6 +1529,7 @@ function renderProjectsBlock() {
     var deleteBtn = p.slug === DEFAULT_PROJECT ? "" :
       '<button type="button" class="btn danger sm project-delete" data-slug="' + escapeHtml(p.slug) + '">Delete</button>';
     var noteId = "n-am-" + escapeHtml(p.slug);
+    var capValue = (p.price_cap_per_hour === null || p.price_cap_per_hour === undefined) ? "" : String(p.price_cap_per_hour);
     return '<li class="card proj"><div class="top"><div><h3>' + escapeHtml(p.name) + '</h3><span class="chip plain">' +
       (serving ? "serving " + serving + (serving === 1 ? " model" : " models") : "no model serving") + "</span></div>" + deleteBtn + "</div>" +
       '<div class="addr"><code>' + escapeHtml(address) + '</code><button class="btn sm copy" type="button" data-a="' + escapeHtml(address) +
@@ -1559,7 +1538,15 @@ function renderProjectsBlock() {
       escapeHtml(p.slug) + '" autocomplete="off" class="project-auto-move-box" data-slug="' +
       escapeHtml(p.slug) + '"' + (p.auto_move ? " checked" : "") + "><span>Auto-move to a cheaper machine</span></label>" +
       infoButton(noteId, "auto-move for " + p.name) + "</div>" +
-      '<p class="note" id="' + noteId + '" hidden>' + escapeHtml(AUTO_MOVE_ABOUT) + "</p></div></li>";
+      '<p class="note" id="' + noteId + '" hidden>' + escapeHtml(AUTO_MOVE_ABOUT) + "</p></div>" +
+      '<div class="field"><div class="lab"><label for="price-cap-' + escapeHtml(p.slug) + '">Most per hour, US dollars</label>' +
+      infoButton("cap-note-" + escapeHtml(p.slug), "the price cap for " + p.name) + "</div>" +
+      '<div class="savebox"><input type="text" id="price-cap-' + escapeHtml(p.slug) + '" name="price_cap_' + escapeHtml(p.slug) +
+      '" inputmode="decimal" autocomplete="off" placeholder="no cap" class="project-cap-box" data-slug="' +
+      escapeHtml(p.slug) + '" value="' + escapeHtml(capValue) + '" aria-describedby="cap-note-' + escapeHtml(p.slug) + '">' +
+      '<span class="saved-icon" id="cap-saved-' + escapeHtml(p.slug) + '" aria-hidden="true">' + CHECK_ICON + "</span>" +
+      '<span class="sr-only" id="cap-sr-' + escapeHtml(p.slug) + '" role="status"></span></div>' +
+      '<p class="note" id="cap-note-' + escapeHtml(p.slug) + '" hidden>' + escapeHtml(PRICE_CAP_ABOUT) + "</p></div></li>";
   }).join("");
 }
 
@@ -1585,6 +1572,52 @@ byId("project-list").addEventListener("change", async function (ev) {
   } catch (e) {
     showMsg("Could not reach the server to change auto-move for '" + box.dataset.slug + "'.");
     box.checked = !want;
+  } finally {
+    box.disabled = false;
+  }
+});
+
+// savedFlash shows the check beside a box for 1.5 s (it then fades over 0.5 s) and has screen
+// readers announce "Saved" once. It writes no text anywhere on the page.
+var savedFlashTimers = {};
+function savedFlash(iconId, srId) {
+  var icon = byId(iconId);
+  var sr = byId(srId);
+  if (!icon || !sr) return;
+  icon.classList.add("on");
+  sr.textContent = "Saved";
+  clearTimeout(savedFlashTimers[iconId]);
+  savedFlashTimers[iconId] = setTimeout(function () {
+    icon.classList.remove("on");
+    sr.textContent = "";
+  }, 1500);
+}
+
+// A project's price cap box: a change (leaving the box, or Enter) posts at once. A refused value
+// puts the saved figure back and goes to the message overlay; an emptied box saves as no cap.
+// A save shows only the fading check beside the box.
+byId("project-list").addEventListener("change", async function (ev) {
+  var box = ev.target.closest(".project-cap-box");
+  if (!box) return;
+  var slug = box.dataset.slug;
+  var p = state.projects.find(function (x) { return x.slug === slug; });
+  var saved = (p && p.price_cap_per_hour !== null && p.price_cap_per_hour !== undefined) ? String(p.price_cap_per_hour) : "";
+  box.disabled = true;
+  try {
+    var response = await fetch("/api/projects/" + encodeURIComponent(slug) +
+      "/price-cap?usd=" + encodeURIComponent(box.value.trim()), { method: "POST" });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) {
+      box.value = saved;
+      showMsg(body.detail || ("Could not save the price cap for '" + slug + "'."));
+    } else {
+      if (p) p.price_cap_per_hour = body.price_cap_per_hour;
+      box.value = (body.price_cap_per_hour === null || body.price_cap_per_hour === undefined) ? "" : String(body.price_cap_per_hour);
+      savedFlash("cap-saved-" + slug, "cap-sr-" + slug);
+    }
+  } catch (e) {
+    box.value = saved;
+    showMsg("Could not reach the server to save the price cap for '" + slug + "'.");
   } finally {
     box.disabled = false;
   }

@@ -80,7 +80,8 @@ p{margin:0}
 .scrim{position:fixed;inset:0;background:var(--scrim);z-index:55}
 main{padding:16px 16px 72px;max-width:100%}
 .view>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.view>header p{color:var(--muted);font-size:.9375rem}
+.view>header .htitle{display:flex;align-items:center;gap:2px}
+.view>header>.note{flex:1 0 100%;margin:0}
 section{margin-bottom:28px}
 .sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;min-height:32px}
 .sec-acts{display:flex;align-items:center;gap:2px}
@@ -213,8 +214,14 @@ tr.panel-row>td{padding:0;background:var(--warn-bg)!important;border-bottom:1px 
 .lp .actions{display:flex;gap:10px;flex-wrap:wrap;position:sticky;bottom:0;background:var(--warn-bg);padding:10px 0 2px;margin-top:2px}
 .lp .actions .btn{flex:1 1 9rem}
 .lp .actions .btn.primary{flex-grow:2}
-.whybox{display:flex;align-items:flex-start;gap:8px;padding:10px 8px 10px 16px}
-.whybox p{flex:1;padding-top:3px}
+/* A saved field: a check sits inside the box's right edge (no layout shift) and fades out. */
+.savebox{position:relative}
+.savebox input{padding-right:44px}
+.saved-icon{position:absolute;top:50%;right:12px;width:22px;height:22px;margin-top:-11px;color:var(--ok);opacity:0;pointer-events:none;transition:opacity .5s ease-out}
+.saved-icon.on{opacity:1;transition:none}
+.saved-icon svg{width:22px;height:22px;display:block}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+@media (prefers-reduced-motion:reduce){.saved-icon{transition:none}}
 .x{flex:none;width:32px;height:32px;display:inline-grid;place-items:center;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
 .x:hover{background:var(--surface-2);color:var(--text)}
 .x svg{width:18px;height:18px}

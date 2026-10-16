@@ -41,8 +41,10 @@ type projectAnswer struct {
 	Name string `json:"name"`
 	// Enabled is always true. It stays because outside tools keep only projects with
 	// `enabled === true`.
-	Enabled  bool                   `json:"enabled"`
-	AutoMove bool                   `json:"auto_move"`
+	Enabled  bool `json:"enabled"`
+	AutoMove bool `json:"auto_move"`
+	// PriceCap is the project's hourly price cap in US dollars, null for no cap.
+	PriceCap *float64               `json:"price_cap_per_hour"`
 	BaseURL  string                 `json:"base_url"`
 	Models   []string               `json:"models"`
 	Backends []projectBackendAnswer `json:"backends"`
@@ -73,14 +75,8 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, answer)
 	}
-	priceCap, err := s.store.PriceCap()
-	if err != nil {
-		s.log.Add("console", "could not read the price cap for /api/projects: "+err.Error())
-		writeRefusal(w, http.StatusInternalServerError, "Could not read the price cap.")
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"projects": out, "price_cap_per_hour": priceCap})
+	_ = json.NewEncoder(w).Encode(map[string]any{"projects": out})
 }
 
 // projectAnswerFor builds one project's /api/projects row: its base address under /p/<slug>, and
@@ -92,6 +88,7 @@ func (s *Server) projectAnswerFor(p store.Project, origin string) (projectAnswer
 		Name:     p.Name,
 		Enabled:  true,
 		AutoMove: p.AutoMove,
+		PriceCap: p.PriceCap,
 		BaseURL:  origin + "/p/" + p.Slug,
 		Models:   []string{},
 		Backends: []projectBackendAnswer{},
@@ -270,31 +267,34 @@ func (s *Server) handleProjectAutoMove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"slug": slug, "auto_move": on})
 }
 
-// handlePriceCap answers POST /api/settings/price-cap?usd=<dollars per hour>: the one hourly price
-// ceiling the Projects view sets. An empty usd clears it (no cap). It applies to the next launch
-// and the next look of the auto-move; a machine already running is not touched by it.
-func (s *Server) handlePriceCap(w http.ResponseWriter, r *http.Request) {
-	raw := strings.TrimSpace(r.URL.Query().Get("usd"))
-	if raw == "" {
-		if err := s.store.SetPriceCap(nil); err != nil {
-			s.log.Add("console", "could not clear the price cap: "+err.Error())
-			writeRefusal(w, http.StatusInternalServerError, "Could not clear the price cap.")
+// handleProjectPriceCap answers POST /api/projects/{slug}/price-cap?usd=<dollars per hour>: the
+// project's hourly price ceiling, set in its card under Projects. An empty usd clears it (no cap).
+// It applies to the project's next launch and the next look of its auto-move; a machine already
+// running is not touched by it.
+func (s *Server) handleProjectPriceCap(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	var cap *float64
+	if raw := strings.TrimSpace(r.URL.Query().Get("usd")); raw != "" {
+		usd, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(usd) || math.IsInf(usd, 0) || usd <= 0 {
+			writeRefusal(w, http.StatusBadRequest, "The price cap must be a number of dollars per hour above zero, or empty for no cap.")
 			return
 		}
-		s.log.Add("console", "the price cap is cleared: no hourly ceiling.")
-		writeJSON(w, http.StatusOK, map[string]any{"price_cap_per_hour": nil})
-		return
+		cap = &usd
 	}
-	usd, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsNaN(usd) || math.IsInf(usd, 0) || usd <= 0 {
-		writeRefusal(w, http.StatusBadRequest, "The price cap must be a number of dollars per hour above zero, or empty for no cap.")
-		return
-	}
-	if err := s.store.SetPriceCap(&usd); err != nil {
-		s.log.Add("console", "could not write the price cap: "+err.Error())
+	if err := s.store.SetProjectPriceCap(slug, cap); err != nil {
+		if err == sql.ErrNoRows {
+			writeRefusal(w, http.StatusNotFound, "'"+slug+"' is not a project this console knows.")
+			return
+		}
+		s.log.Add("console", "could not write the price cap of project '"+slug+"': "+err.Error())
 		writeRefusal(w, http.StatusInternalServerError, "Could not save the price cap.")
 		return
 	}
-	s.log.Add("console", "the price cap is "+priceCapText(usd)+".")
-	writeJSON(w, http.StatusOK, map[string]any{"price_cap_per_hour": usd})
+	if cap == nil {
+		s.log.Add("console", "the price cap of project '"+slug+"' is cleared: no hourly ceiling.")
+	} else {
+		s.log.Add("console", "the price cap of project '"+slug+"' is "+priceCapText(*cap)+".")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"slug": slug, "price_cap_per_hour": cap})
 }

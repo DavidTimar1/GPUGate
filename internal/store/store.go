@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strconv"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -52,11 +53,53 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := addProjectPriceCap(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("add the project price cap: %w", err)
+	}
 	if err := seedCodingProject(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("seed the coding project: %w", err)
 	}
 	return &Store{db: db}, nil
+}
+
+// addProjectPriceCap brings a database made before the cap belonged to a project up to date. It
+// adds project.price_cap_per_hour where the table lacks it (the one error ignored is "duplicate
+// column name", which a fresh database and every later start answer), then, in one transaction,
+// copies the old program-wide cap (the `setting` row of the same name) into every project whose
+// cap is empty and deletes that row. The row is deleted in the same transaction as the copy so a
+// crash cannot lose the cap, and its absence is what makes the copy happen once. Delete this
+// function once no database file older than the column remains.
+func addProjectPriceCap(db *sql.DB) error {
+	if _, err := db.Exec("ALTER TABLE project ADD COLUMN price_cap_per_hour REAL"); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var value string
+	err = tx.QueryRow("SELECT value FROM setting WHERE key = 'price_cap_per_hour'").Scan(&value)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cap, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fmt.Errorf("the stored price cap %q is not a number: %w", value, err)
+	}
+	if _, err := tx.Exec("UPDATE project SET price_cap_per_hour = ? WHERE price_cap_per_hour IS NULL", cap); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM setting WHERE key = 'price_cap_per_hour'"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Close closes the underlying database file.

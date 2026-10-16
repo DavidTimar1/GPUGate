@@ -257,6 +257,9 @@ func (s *Server) considerMove(project string, liveShapes func() []provider.Shape
 			s.logMoveSkipOnce(claim.ID, "auto-move: the launch request of "+claimText+" cannot be read, so it is never moved: "+err.Error())
 			continue
 		}
+		// The project the pass is for, not the one the stored JSON names: the price cap that
+		// bounds this move, and the cap startMove's launch is checked against, is this project's.
+		req.Project = project
 		if claim.PricePerHour == nil {
 			s.logMoveSkipOnce(claim.ID, "auto-move: "+claimText+" ("+claim.ShapeCode+") has no recorded price, so nothing can be cheaper than it.")
 			continue
@@ -374,9 +377,9 @@ func (s *Server) cheapestCandidate(req launchRequest, claim store.Claim, shapes 
 		s.log.Add("move", "could not read the shape ticks: "+err.Error())
 		return provider.Shape{}, "", false
 	}
-	priceCap, err := s.store.PriceCap()
+	priceCap, err := s.store.ProjectPriceCap(req.Project)
 	if err != nil {
-		s.log.Add("move", "could not read the price cap, so no cheaper machine is chosen: "+err.Error())
+		s.log.Add("move", "could not read the price cap of project '"+req.Project+"', so no cheaper machine is chosen: "+err.Error())
 		return provider.Shape{}, "", false
 	}
 	plan := fit.Plan{ContextTokens: fit.ContextTokensFromThousands(req.ContextThousands), ConcurrentChats: req.Chats}
@@ -451,7 +454,7 @@ func (s *Server) cheapestCandidate(req launchRequest, claim store.Claim, shapes 
 	if len(candidates) == 0 {
 		if cheaper == 0 {
 			if overCap > 0 {
-				return provider.Shape{}, strconv.Itoa(overCap) + " shapes are priced below it, all over the price cap.", false
+				return provider.Shape{}, strconv.Itoa(overCap) + " shapes are priced below it, all over the price cap of project '" + req.Project + "'.", false
 			}
 			return provider.Shape{}, "no shape is priced below it.", false
 		}
@@ -517,9 +520,9 @@ func (s *Server) fewerCardsCandidate(req launchRequest, chosen provider.Shape, s
 		s.log.Add("console", "could not read the shape ticks, so no machine with fewer cards is offered: "+err.Error())
 		return provider.Shape{}, false
 	}
-	priceCap, err := s.store.PriceCap()
+	priceCap, err := s.store.ProjectPriceCap(req.Project)
 	if err != nil {
-		s.log.Add("console", "could not read the price cap, so no machine with fewer cards is offered: "+err.Error())
+		s.log.Add("console", "could not read the price cap of project '"+req.Project+"', so no machine with fewer cards is offered: "+err.Error())
 		return provider.Shape{}, false
 	}
 	plan := fit.Plan{ContextTokens: fit.ContextTokensFromThousands(req.ContextThousands), ConcurrentChats: req.Chats}

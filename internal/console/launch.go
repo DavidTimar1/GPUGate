@@ -464,19 +464,20 @@ func (s *Server) startLaunch(ctx context.Context, req launchRequest, opts launch
 	if opts.belowPrice != nil && (shape.OnDemandPricePerHour == nil || *shape.OnDemandPricePerHour >= *opts.belowPrice) {
 		return refuse(http.StatusBadRequest, "'"+shapeCode+"' is no longer cheaper than the machine it would replace.")
 	}
-	// The price cap: one hourly ceiling for the whole program, set under Projects. A shape whose
-	// price the provider did not name cannot be shown to be under it, so it is refused too.
-	priceCap, err := s.store.PriceCap()
+	// The price cap of this launch's own project, set under Projects. A shape whose price the
+	// provider did not name cannot be shown to be under it, so it is refused too. A project that
+	// cannot be read refuses; it is never read as "no cap".
+	priceCap, err := s.store.ProjectPriceCap(project)
 	if err != nil {
-		s.log.Add("console", "could not read the price cap: "+err.Error())
-		return refuse(http.StatusInternalServerError, "Could not check the price cap. Nothing was asked of "+target.DisplayName()+".")
+		s.log.Add("console", "could not read the price cap of project '"+project+"': "+err.Error())
+		return refuse(http.StatusInternalServerError, "Could not check the price cap of project '"+project+"'. Nothing was asked of "+target.DisplayName()+".")
 	}
 	if priceCap != nil {
 		if shape.OnDemandPricePerHour == nil {
-			return refuse(http.StatusBadRequest, "'"+shapeCode+"' has no price from "+target.DisplayName()+", so it cannot be shown to be under the price cap of "+priceCapText(*priceCap)+".")
+			return refuse(http.StatusBadRequest, "'"+shapeCode+"' has no price from "+target.DisplayName()+", so it cannot be shown to be under the price cap of "+priceCapText(*priceCap)+" for project '"+project+"'.")
 		}
 		if *shape.OnDemandPricePerHour > *priceCap {
-			return refuse(http.StatusBadRequest, "'"+shapeCode+"' costs "+priceCapText(*shape.OnDemandPricePerHour)+", over the price cap of "+priceCapText(*priceCap)+".")
+			return refuse(http.StatusBadRequest, "'"+shapeCode+"' costs "+priceCapText(*shape.OnDemandPricePerHour)+", over the price cap of "+priceCapText(*priceCap)+" for project '"+project+"'.")
 		}
 	}
 	plan := fit.Plan{ContextTokens: fit.ContextTokensFromThousands(ctxThousands), ConcurrentChats: chats}

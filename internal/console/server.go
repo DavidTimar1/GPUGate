@@ -245,7 +245,7 @@ func New(st *store.Store, log *logring.Ring, uiDir string, models []catalog.Mode
 	mux.HandleFunc("POST /api/projects", s.handleCreateProject)
 	mux.HandleFunc("DELETE /api/projects/{slug}", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/projects/{slug}/auto-move", s.handleProjectAutoMove)
-	mux.HandleFunc("POST /api/settings/price-cap", s.handlePriceCap)
+	mux.HandleFunc("POST /api/projects/{slug}/price-cap", s.handleProjectPriceCap)
 	mux.HandleFunc("POST /api/machines/{provider}/{id}/destroy", s.handleDestroy)
 	mux.HandleFunc("POST /api/machines/{provider}/{id}/idle-minutes", s.handleIdleMinutes)
 	mux.HandleFunc("GET /api/launch-offer", s.handleLaunchOffer)

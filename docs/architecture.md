@@ -101,7 +101,7 @@ On the way through, GPUGate counts tokens in, out and read from cache, and recor
 
 ## Moving to a cheaper machine
 
-A project can have auto-move switched on. Then GPUGate keeps looking for a cheaper machine, among the ones you ticked, that holds the same model at the same context and chat count. It rents it, waits until it serves, switches the project's address to it, and destroys the old machine once the new one has answered cleanly for a minute and nothing is still running on the old one. It never picks a different model or setting, and never a machine you did not tick, and never one over the price cap. Pressing Launch on such a project, or on a machine with more cards than needed, first offers the cheaper choice.
+A project can have auto-move switched on. Then GPUGate keeps looking for a cheaper machine, among the ones you ticked, that holds the same model at the same context and chat count. It rents it, waits until it serves, switches the project's address to it, and destroys the old machine once the new one has answered cleanly for a minute and nothing is still running on the old one. It never picks a different model or setting, and never a machine you did not tick, and never one over that project's price cap. Pressing Launch on such a project, or on a machine with more cards than needed, first offers the cheaper choice.
 
 ## Will the model fit
 
@@ -119,7 +119,7 @@ The page has Machines (what is running, what to run, the machine table), Project
 
 ## Settings and credentials
 
-Credentials come from the environment or from a `.env` file in the working directory; a variable already set in the environment wins. The names are `RUNPOD_API_GPU_GATE` (RunPod), `VERDA_MAIN_CLIENT_ID` and `VERDA_MAIN_CLIENT_SECRET` (Verda), `HF_API_KEY` or `HF_TOKEN` (Hugging Face, optional), `GPUGATE_ACCESS_KEY` (optional, the key tools send to the fixed address), `GPUGATE_HOSTNAMES` and `GPUGATE_COOKIE_SECURE` (optional, see [the login](#the-login)). The database only ever stores where a secret lives, never its value. `GPUGATE_LISTEN` and `GPUGATE_PORT` set where it listens (see [One program, one port](#one-program-one-port)). [`example.env`](../example.env) names every variable the program reads. The price cap is not an environment variable: it is one value in the database's `setting` table, set under Projects in the console. It is US dollars per hour for the whole program, empty means no cap, and it is enforced when a launch is checked and when the auto-move picks a machine. A machine whose price the provider did not name is refused while a cap is set. A machine already running is not touched when the cap is lowered. The paths are constants.
+Credentials come from the environment or from a `.env` file in the working directory; a variable already set in the environment wins. The names are `RUNPOD_API_GPU_GATE` (RunPod), `VERDA_MAIN_CLIENT_ID` and `VERDA_MAIN_CLIENT_SECRET` (Verda), `HF_API_KEY` or `HF_TOKEN` (Hugging Face, optional), `GPUGATE_ACCESS_KEY` (optional, the key tools send to the fixed address), `GPUGATE_HOSTNAMES` and `GPUGATE_COOKIE_SECURE` (optional, see [the login](#the-login)). The database only ever stores where a secret lives, never its value. `GPUGATE_LISTEN` and `GPUGATE_PORT` set where it listens (see [One program, one port](#one-program-one-port)). [`example.env`](../example.env) names every variable the program reads. The price cap is not an environment variable: each project has its own, a column on the database's `project` table, set in the project's card under Projects in the console (it saves when the box is left). It is US dollars per hour, empty means no cap, and it is enforced when a launch for that project is checked and when that project's auto-move picks a machine. A machine whose price the provider did not name is refused while a cap is set. A machine already running is not touched when the cap is lowered. The paths are constants.
 
 ## Principles the design holds to
 
@@ -130,4 +130,4 @@ Credentials come from the environment or from a `.env` file in the working direc
 
 ## What is deliberately not here
 
-No spending total or budget (only the hourly price cap), no spot machines, no queue that waits for capacity, no changing the model on a running machine, and no coordination between two launches made at once.
+No spending total or budget (only each project's hourly price cap), no spot machines, no queue that waits for capacity, no changing the model on a running machine, and no coordination between two launches made at once.

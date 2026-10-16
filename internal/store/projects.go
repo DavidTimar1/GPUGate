@@ -48,13 +48,16 @@ type Project struct {
 	// AutoMove is the project's switch for moving a serving model to a cheaper machine by itself
 	// (project.auto_move), off by default.
 	AutoMove bool
+	// PriceCap is the most, in US dollars per hour, a machine for this project may cost
+	// (project.price_cap_per_hour); nil means no cap.
+	PriceCap *float64
 }
 
 // ListProjects answers every project, 'coding' first, then the rest by created_at. A client
 // that takes the first listed project gets the default project, never a later one.
 func (s *Store) ListProjects() ([]Project, error) {
 	rows, err := s.db.Query(
-		`SELECT slug, name, created_at, auto_move FROM project ORDER BY (slug != 'coding'), created_at`,
+		`SELECT slug, name, created_at, auto_move, price_cap_per_hour FROM project ORDER BY (slug != 'coding'), created_at`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("read the projects: %w", err)
@@ -63,7 +66,7 @@ func (s *Store) ListProjects() ([]Project, error) {
 	var out []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.Slug, &p.Name, &p.CreatedAt, &p.AutoMove); err != nil {
+		if err := rows.Scan(&p.Slug, &p.Name, &p.CreatedAt, &p.AutoMove, &p.PriceCap); err != nil {
 			return nil, fmt.Errorf("read a project row: %w", err)
 		}
 		out = append(out, p)
@@ -109,6 +112,41 @@ func (s *Store) DeleteProject(slug string) error {
 	_, err := s.db.Exec("DELETE FROM project WHERE slug = ?", slug)
 	if err != nil {
 		return fmt.Errorf("delete project %s: %w", slug, err)
+	}
+	return nil
+}
+
+// ProjectPriceCap returns the hourly price cap of project slug in US dollars, nil when it has
+// none. A slug that is not a project is sql.ErrNoRows, never "no cap": a launch for a project
+// that cannot be found must refuse, not run uncapped.
+func (s *Store) ProjectPriceCap(slug string) (*float64, error) {
+	var cap sql.NullFloat64
+	err := s.db.QueryRow("SELECT price_cap_per_hour FROM project WHERE slug = ?", slug).Scan(&cap)
+	if err == sql.ErrNoRows {
+		return nil, err
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the price cap of project %s: %w", slug, err)
+	}
+	if !cap.Valid {
+		return nil, nil
+	}
+	return &cap.Float64, nil
+}
+
+// SetProjectPriceCap stores cap as the hourly price cap of project slug, or removes the cap when
+// cap is nil. A slug that is not a project is sql.ErrNoRows.
+func (s *Store) SetProjectPriceCap(slug string, cap *float64) error {
+	var v any
+	if cap != nil {
+		v = *cap
+	}
+	res, err := s.db.Exec("UPDATE project SET price_cap_per_hour = ? WHERE slug = ?", v, slug)
+	if err != nil {
+		return fmt.Errorf("set the price cap of project %s: %w", slug, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

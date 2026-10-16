@@ -2,8 +2,7 @@
 -- which leaves an existing table untouched: a column added here later reaches an existing
 -- database only through a migration written for it (see store.Open).
 --
--- `setting` holds small named values: the hourly price cap and the moment the Sessions view was
--- last cleared.
+-- `setting` holds small named values, such as the moment the Sessions view was last cleared.
 CREATE TABLE IF NOT EXISTS setting (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -23,11 +22,14 @@ CREATE TABLE IF NOT EXISTS shape_tick (
 -- with a letter (store.ValidProjectSlug), checked before a row reaches this table, so nothing here
 -- can hold a slug the fixed address could not route. `auto_move` is the project's switch for
 -- moving its serving model to a cheaper machine by itself, 0 (off) until the user turns it on.
+-- `price_cap_per_hour` is the most, in US dollars per hour, a machine launched or moved for this
+-- project may cost; NULL means no cap.
 CREATE TABLE IF NOT EXISTS project (
     slug       TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    auto_move  INTEGER NOT NULL DEFAULT 0
+    auto_move  INTEGER NOT NULL DEFAULT 0,
+    price_cap_per_hour REAL
 );
 
 -- `machine` mirrors the last fresh provider answer for what is running on that provider's

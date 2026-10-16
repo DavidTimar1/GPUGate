@@ -84,7 +84,7 @@ These commands work without the console, run from the project folder after `./ga
 
 `list` prints every machine on both accounts, or why an account could not be asked. `destroy` destroys one machine and waits for a fresh list to confirm it gone.
 
-Under Projects in the console you can set a price cap in dollars per hour. Launch and the auto-move refuse any machine priced over it or with no price. Empty means no cap.
+Under Projects in the console each project has its own price cap in dollars per hour. Launch and the auto-move for that project refuse any machine priced over it or with no price. Empty means no cap.
 
 ## The Verda SSH key
 
