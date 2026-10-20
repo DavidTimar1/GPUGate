@@ -1,8 +1,8 @@
 # Contributing
 
-GPUGate is not maintained, so pull requests and issues are not reviewed. Fork it freely and change it however you like under the licence.
+GPUGate is a hobby project, and there is no time set aside to maintain it. Contributions are welcome all the same, as pull requests or issues. There is no promise of when either is read or whether a pull request is merged, so a small pull request that says what it fixes and how it was checked has the best chance. Forking it and changing it however you like under the licence is welcome too.
 
-If you work on a fork, these are the rules the code was written to:
+Whether you send a pull request or keep a fork, these are the rules the code was written to:
 
 - **Check every change** with `gofmt -l .`, `go vet ./...` and `go build ./...`. The project has no tests; it was written as a hobby and is meant to fail loudly where it is wrong.
 - **One binary, one port, one copy.** The program listens on exactly the addresses named in `GPUGATE_LISTEN` and on one port, and stops rather than moving to another port. `./gate.sh` starts and stops it.

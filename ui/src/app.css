@@ -57,7 +57,7 @@ p{margin:0}
 .topbar{position:sticky;top:0;z-index:40;height:var(--bar);display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--line)}
 .brand{font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;margin-right:auto;min-width:0}
 .brand svg{width:22px;height:22px;color:var(--accent);flex:none}
-.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:.8125rem;font-weight:600;padding:5px 11px;border-radius:99px;background:var(--surface-2);border:0;cursor:pointer;color:var(--text);min-height:32px}
+.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:.8125rem;font-weight:600;padding:5px 11px;border-radius:99px;background:var(--surface-2);border:0;cursor:pointer;color:var(--text);min-height:36px}
 .pill .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .pill.warn .dot{background:var(--warn);animation:pulse 1.4s ease-in-out infinite}
 .pill.pill-idle .dot{background:var(--control)}
@@ -83,7 +83,7 @@ main{padding:16px 16px 72px;max-width:100%}
 .view>header .htitle{display:flex;align-items:center;gap:2px}
 .view>header>.note{flex:1 0 100%;margin:0}
 section{margin-bottom:28px}
-.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;min-height:32px}
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;min-height:36px}
 .sec-acts{display:flex;align-items:center;gap:2px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
 .pad{padding:16px}
@@ -96,7 +96,7 @@ section{margin-bottom:28px}
 .btn.danger{border-color:var(--bad);color:var(--bad);background:transparent}
 .btn.danger:hover{background:var(--bad-bg)}
 .btn.solid-danger{background:var(--bad);border-color:var(--bad);color:var(--surface)}
-.btn.sm{min-height:36px;padding:0 12px;font-size:.9375rem}
+.btn.sm{min-height:36px;padding:0 12px;font-size:.9375rem;white-space:nowrap}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .field{display:flex;flex-direction:column;gap:6px;min-width:0}
 /* One row of fields: every field is three subgrid rows (label, control, note), so labels share a
@@ -109,11 +109,11 @@ section{margin-bottom:28px}
 .proj .lab{white-space:normal}
 .proj .lab .switch{flex:1;min-width:0}
 .newproj.frow>.field{padding-bottom:14px}
-.lab{display:flex;align-items:center;gap:2px;font-weight:600;font-size:.9375rem;min-height:32px}
+.lab{display:flex;align-items:center;gap:2px;font-weight:600;font-size:.9375rem;min-height:36px}
 input[type=text],input[type=number],input[type=search],select{width:100%;min-height:44px;padding:0 12px;background:var(--surface);color:var(--text);border:1px solid var(--control);border-radius:10px;font-size:1rem}
 input::placeholder{color:var(--faint)}
-/* "i" explanation: a 32px visible button inside a 44px-tall row; the note opens in place. */
-.info{width:32px;height:32px;flex:none;display:inline-grid;place-items:center;background:transparent;border:0;border-radius:50%;cursor:pointer;color:var(--muted)}
+/* "i" explanation: a 20px glyph in a 36px button with a mouse, 44px on touch (the touch block at the end); the note opens in place. */
+.info{width:36px;height:36px;flex:none;display:inline-grid;place-items:center;background:transparent;border:0;border-radius:50%;cursor:pointer;color:var(--muted)}
 .info span{display:grid;place-items:center;width:20px;height:20px;border:1.5px solid currentColor;border-radius:50%;font:italic 700 .75rem/1 Georgia,serif}
 .info:hover{color:var(--accent)}
 .info[aria-expanded=true]{color:var(--accent)}
@@ -166,7 +166,7 @@ input::placeholder{color:var(--faint)}
 .setup .model{grid-column:1/-1}
 details.ms{position:relative;margin-top:4px;border-top:1px solid var(--line);padding-top:6px}
 details.ms:not([open])>.allinfo{display:none}
-.allinfo{position:absolute;right:0;top:10px}
+.allinfo{position:absolute;right:0;top:10px} /* centred on the 44px summary row; the touch block moves it with the bigger button */
 details.ms>summary{list-style:none;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:10px;font-weight:700}
 details.ms>summary::-webkit-details-marker{display:none}
 details.ms>summary::before{content:"";width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s;margin:0 4px}
@@ -203,6 +203,12 @@ td{font-size:.9375rem}
 tr.panel-row>td{padding:0;background:var(--warn-bg)!important;border-bottom:1px solid var(--line)}
 .fit-yes{color:var(--ok);font-weight:600}
 .fit-no{color:var(--muted)}
+#launch-path{position:relative}
+.lock{position:absolute;inset:0;z-index:3;background:color-mix(in srgb,var(--bg) 85%,transparent)}
+.spin{display:block;box-sizing:border-box;width:32px;height:32px;border:3px solid var(--control);border-top-color:var(--accent);border-radius:50%;position:sticky;top:35vh;margin:0 auto;animation:spinfade 0s .3s both,spin .8s linear infinite}
+@media (max-width:60rem){.spin{width:28px;height:28px}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes spinfade{from{opacity:0}to{opacity:1}}
 .overlay{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:2rem;color:var(--muted);background:color-mix(in srgb,var(--bg) 85%,transparent);z-index:3;font-weight:600}
 
 /* ===== Launch panel ===== */
@@ -222,7 +228,7 @@ tr.panel-row>td{padding:0;background:var(--warn-bg)!important;border-bottom:1px 
 .saved-icon svg{width:22px;height:22px;display:block}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (prefers-reduced-motion:reduce){.saved-icon{transition:none}}
-.x{flex:none;width:32px;height:32px;display:inline-grid;place-items:center;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
+.x{flex:none;width:36px;height:36px;display:inline-grid;place-items:center;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
 .x:hover{background:var(--surface-2);color:var(--text)}
 .x svg{width:18px;height:18px}
 .msgs{position:fixed;z-index:150;top:8px;left:8px;right:8px;max-width:46rem;margin:0 auto;display:grid;gap:8px;pointer-events:none}
@@ -311,7 +317,8 @@ tr.panel-row>td{padding:0;background:var(--warn-bg)!important;border-bottom:1px 
 @media (max-width:59.99rem){
   .brandwide{display:none}
   .stable{display:none!important}
-  thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  /* visibility:hidden also takes the clipped header's sort buttons out of Tab order and the accessibility tree; the phone sort select replaces them. */
+  thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);visibility:hidden}
   table,tbody{display:block}
   tbody tr:not(.panel-row){
     display:grid;grid-template-columns:1fr auto;column-gap:12px;row-gap:4px;
@@ -336,3 +343,18 @@ tr.panel-row>td{padding:0;background:var(--warn-bg)!important;border-bottom:1px 
 .mobile-sort{display:flex;gap:8px;align-items:center}
 .mobile-sort label{font-weight:600;font-size:.9375rem;white-space:nowrap}
 @media (max-width:21.99rem){ .pill .ptxt{display:none} }
+
+/* ===== Touch: a tapped control has a 44px hit area (WCAG 2.5.8 asks 24px, design-reference 44px). A
+   mouse keeps the 36px controls. The pill keeps its 32px capsule: the button is 44px tall and the
+   capsule is drawn inside it. ===== */
+@media (max-width:59.99rem),(pointer:coarse){
+  .btn.sm{min-height:44px}
+  .x{width:44px;height:44px}
+  .seg label{min-height:44px}
+  .pill{position:relative;isolation:isolate;min-height:44px;min-width:44px;justify-content:center;padding:0 11px;background:transparent}
+  .pill::before{content:"";position:absolute;left:0;right:0;top:50%;height:32px;margin-top:-16px;border-radius:99px;background:var(--surface-2);z-index:-1}
+  .info{width:44px;height:44px}
+  .lab,.sec-head{min-height:44px}
+  .sec-acts{gap:8px}
+  .allinfo{top:6px}
+}

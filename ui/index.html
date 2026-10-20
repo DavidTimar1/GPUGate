@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPUGate</title>
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<title>(!) GPUGate</title>
+<!-- First paint is the warning state: nothing is known yet, and the idle icon would claim nothing runs. afterRunningSwap in src/app.js replaces both. -->
+<link rel="icon" id="favicon" href="favicon-warning.svg" type="image/svg+xml">
 <link rel="stylesheet" href="dist/app.css">
 <script src="vendor/htmx/htmx.min.js"></script>
 </head>
@@ -15,7 +16,7 @@
 <header class="topbar">
   <button class="ibtn ham" id="ham" type="button" aria-label="Open the menu" aria-expanded="false" aria-controls="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
   <span class="brand"><span class="vh">GPUGate</span><span aria-hidden="true">GPUGate</span></span>
-  <button class="pill" id="statuspill" type="button" aria-label="Machines: none running"><span class="dot"></span><span class="ptxt" id="pilltxt">Idle</span></button>
+  <button class="pill warn" id="statuspill" type="button" aria-label="Machines: not known yet"><span class="dot"></span><span class="ptxt" id="pilltxt">Unknown</span></button>
   <button class="ibtn" id="theme-toggle" type="button" aria-label="Switch to dark mode"></button>
   <button class="ibtn" id="log-toggle" type="button" aria-label="Open the console log" aria-expanded="false" aria-controls="log-panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span class="badge" id="logbadge" title="A recent line failed" hidden></span></button>
 </header>
@@ -38,33 +39,34 @@
 
   <section aria-labelledby="run-h" id="running">
     <div class="sec-head"><h2 id="run-h" tabindex="-1">Running now</h2><span class="chip plain" id="runstamp" hidden></span></div>
-    <ul class="rlist" id="rlist" aria-live="polite" hx-get="/api/running" hx-trigger="load, every 5s" hx-swap="innerHTML">
+    <ul class="rlist" id="rlist" aria-live="polite" hx-get="/api/running" hx-trigger="load, every 5s, refresh" hx-swap="innerHTML">
       <li class="card empty">Asking both providers what is running&hellip;</li>
     </ul>
   </section>
 
+  <div id="launch-path" inert aria-busy="true">
   <section aria-labelledby="setup-h">
     <div class="sec-head"><h2 id="setup-h">What to run</h2></div>
     <div class="card pad">
       <div class="frow setup">
         <div class="field model">
           <label class="lab" for="model-select">Model</label>
-          <select id="model-select" name="model" autocomplete="off"><option value="">Choose a model</option></select>
+          <select id="model-select" name="model" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore><option value="">Choose a model</option></select>
         </div>
         <div class="field">
           <div class="lab"><label for="ctx">Context (k)</label><button class="info" type="button" aria-expanded="false" aria-controls="ctx-note" aria-label="About Context"><span aria-hidden="true">i</span></button></div>
-          <input type="number" id="ctx" name="context_thousands" autocomplete="off" value="256" min="1" inputmode="numeric">
+          <input type="number" id="ctx" name="context_thousands" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore value="256" min="1" inputmode="numeric">
           <p class="note" id="ctx-note" hidden></p>
         </div>
         <div class="field">
           <div class="lab"><label for="chats">Chats</label><button class="info" type="button" aria-expanded="false" aria-controls="chats-note" aria-label="About Chats"><span aria-hidden="true">i</span></button></div>
-          <input type="number" id="chats" name="chats" autocomplete="off" value="10" min="1" inputmode="numeric">
+          <input type="number" id="chats" name="chats" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore value="10" min="1" inputmode="numeric">
           <p class="note" id="chats-note" hidden></p>
         </div>
         <div class="field" id="batch-vllm">
-          <div class="lab"><label for="batched-tokens">Max batched tokens</label><button class="info" type="button" aria-expanded="false" aria-controls="batched-tokens-note" aria-label="About Max batched tokens"><span aria-hidden="true">i</span></button></div>
-          <input type="number" id="batched-tokens" name="max_num_batched_tokens" autocomplete="off" min="1" inputmode="numeric">
-          <p class="note" id="batched-tokens-note" hidden>A per-step budget shared by all chats: how many prompt tokens the engine works on in one step. A longer prompt is read in several steps. Sent with each launch and never saved. Empty means GPUGate derives it from the context and chats.</p>
+          <div class="lab"><label for="step-budget">Max batched tokens</label><button class="info" type="button" aria-expanded="false" aria-controls="step-budget-note" aria-label="About Max batched tokens"><span aria-hidden="true">i</span></button></div>
+          <input type="number" id="step-budget" name="step_budget" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore min="1" inputmode="numeric">
+          <p class="note" id="step-budget-note" hidden>A per-step budget shared by all chats: how many prompt tokens the engine works on in one step. A longer prompt is read in several steps. Sent with each launch and never saved. Empty means GPUGate derives it from the context and chats.</p>
         </div>
       </div>
       <div class="frow setup" id="batch-gguf" hidden></div>
@@ -87,20 +89,20 @@
     <div class="sec-head"><h2 id="inst-h">Machines on offer</h2><button class="btn sm" id="refresh-btn" type="button">Refresh</button></div>
     <div class="tools">
       <div class="row1">
-        <div><label class="vh" for="search-box">Search machines</label><input type="search" id="search-box" name="search" autocomplete="off" placeholder="Search machine, card, provider, region"></div>
+        <div><label class="vh" for="search-box">Search machines</label><input type="search" id="search-box" name="search" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore placeholder="Search machine, card, provider, region"></div>
         <button class="btn filtbtn" id="filtbtn" type="button" aria-expanded="false" aria-controls="filters">Filters<span id="filtn"></span></button>
         <div class="seg" role="radiogroup" aria-label="Which rows to show">
-          <label><input type="radio" id="show-allowed" name="show-mode" autocomplete="off" value="selected" checked>Allowed</label>
-          <label><input type="radio" id="show-all" name="show-mode" autocomplete="off" value="all">All</label>
+          <label><input type="radio" id="show-allowed" name="show-mode" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore value="selected" checked>Allowed</label>
+          <label><input type="radio" id="show-all" name="show-mode" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore value="all">All</label>
         </div>
       </div>
       <div class="filters-panel frow" id="filters">
         <div class="field"><label class="lab" for="filter-provider">Provider</label>
-          <select id="filter-provider" name="filter_provider" autocomplete="off"><option value="">All providers</option></select></div>
-        <div class="field"><span class="lab" aria-hidden="true"></span><label class="check"><input type="checkbox" id="filter-available" name="filter_available" autocomplete="off">Available now</label></div>
-        <div class="field"><span class="lab" aria-hidden="true"></span><label class="check"><input type="checkbox" id="filter-has-model" name="filter_fits_model" autocomplete="off">Fits the chosen model</label></div>
+          <select id="filter-provider" name="filter_provider" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore><option value="">All providers</option></select></div>
+        <div class="field"><span class="lab" aria-hidden="true"></span><label class="check"><input type="checkbox" id="filter-available" name="filter_available" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore>Available now</label></div>
+        <div class="field"><span class="lab" aria-hidden="true"></span><label class="check"><input type="checkbox" id="filter-has-model" name="filter_fits_model" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore>Fits the chosen model</label></div>
       </div>
-      <div class="mobile-sort"><label for="mobile-sort-select">Sort by</label><select id="mobile-sort-select" name="sort" autocomplete="off"></select></div>
+      <div class="mobile-sort"><label for="mobile-sort-select">Sort by</label><select id="mobile-sort-select" name="sort" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore></select></div>
       <p class="count-line" id="visible-count" role="status" aria-live="polite"></p>
     </div>
     <div class="tblwrap">
@@ -118,9 +120,11 @@
         </tr></thead>
         <tbody id="instance-body"></tbody>
       </table>
-      <div class="overlay" id="table-overlay">Loading the table from both providers&hellip;</div>
+      <div class="overlay" id="table-overlay" hidden>Loading the table from both providers&hellip;</div>
     </div>
   </section>
+  <div class="lock" id="launch-lock" role="status"><span class="spin" aria-hidden="true"></span><span class="vh">Loading the model and the machine list</span></div>
+  </div>
 </div>
 
 <!-- =============== PROJECTS =============== -->
@@ -133,8 +137,8 @@
   <section aria-labelledby="np-h">
     <div class="sec-head"><h2 id="np-h">New project</h2></div>
     <form class="card frow newproj" id="new-project-form" hx-post="/api/projects" hx-target="#new-project-result" hx-swap="innerHTML">
-      <div class="field"><label class="lab" for="new-project-slug">Slug</label><input type="text" id="new-project-slug" name="slug" autocomplete="off" placeholder="bench" pattern="[a-z][a-z0-9\-]{0,31}" required autocapitalize="none"></div>
-      <div class="field"><label class="lab" for="new-project-name">Name</label><input type="text" id="new-project-name" name="name" autocomplete="off" placeholder="Bench" required></div>
+      <div class="field"><label class="lab" for="new-project-slug">Slug</label><input type="text" id="new-project-slug" name="slug" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore placeholder="bench" pattern="[a-z][a-z0-9\-]{0,31}" required autocapitalize="none"></div>
+      <div class="field"><label class="lab" for="new-project-name">Name</label><input type="text" id="new-project-name" name="name" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore placeholder="Bench" required></div>
       <div class="field"><span class="lab" aria-hidden="true"></span><button class="btn primary" type="submit">Create project</button></div>
       <span id="new-project-result" hidden></span>
     </form>
@@ -157,7 +161,7 @@
 <div class="scrim" id="log-scrim" hidden></div>
 <aside class="logp" id="log-panel" role="dialog" aria-modal="true" aria-label="Console log">
   <header><h2>Console log</h2><button class="ibtn" id="log-close" type="button" aria-label="Close the console log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
-  <div class="opts"><label class="check"><input type="checkbox" id="log-show-all" name="log_show_all" autocomplete="off">Show everything</label></div>
+  <div class="opts"><label class="check"><input type="checkbox" id="log-show-all" name="log_show_all" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore>Show everything</label></div>
   <div id="log-body"></div>
 </aside>
 

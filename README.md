@@ -3,7 +3,7 @@
 **Rent a GPU machine on RunPod or Verda that is already serving the model you picked, point your coding tool at one fixed local address, and have the machine destroyed when you stop using it.**
 
 > [!WARNING]
-> **This project is not maintained.** It was built as a hobby and is published as is, in case it is useful to someone. There are no releases, no support, and no one reads issues or pull requests. It rents machines that cost real money on your own provider accounts: read the code before you trust it, and fork it freely.
+> **GPUGate is a hobby project, and there is no time set aside to maintain it.** It is published as is, in case it is useful to someone. There is no support and no promise of when an issue or a pull request is read, but contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). It rents machines that cost real money on your own provider accounts, so read the code before you trust it.
 
 ## Contents
 
@@ -116,9 +116,10 @@ The limits (password length, session life, lockout counts, key length) and the r
 
 - [Architecture](docs/architecture.md): how the program is put together and why.
 - [Providers and model servers](docs/providers.md): what RunPod, Verda, vLLM and llama.cpp actually do, learned from real machines.
+- [Adding a model](docs/adding-a-model.md): how to write a new row in `catalog/models.json` and check it before a paid launch.
 
 The code and its comments are the detailed documentation.
 
 ## Licence
 
-GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE). The third-party code and fonts the project includes are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The project is not maintained: see [CONTRIBUTING.md](CONTRIBUTING.md).
+GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE). The third-party code and fonts the project includes are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).

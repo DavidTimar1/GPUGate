@@ -239,6 +239,7 @@ func New(st *store.Store, log *logring.Ring, uiDir string, models []catalog.Mode
 	mux.HandleFunc("/api/machines", s.handleMachinesAndModels)
 	mux.HandleFunc("/api/models", s.handleRecalculate)
 	mux.HandleFunc("/api/running", s.handleRunning)
+	mux.HandleFunc("GET /api/claims/{id}", s.handleClaimState)
 	mux.HandleFunc("GET /api/projects", s.handleProjects)
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	mux.HandleFunc("POST /api/settings/sessions-since", s.handleSessionsSince)
@@ -280,7 +281,7 @@ func New(st *store.Store, log *logring.Ring, uiDir string, models []catalog.Mode
 }
 
 // handleStatic serves the few files of ui/ the page needs and nothing else: the page itself at
-// "/", the favicon, and the files under dist/ and vendor/. It never serves a directory listing,
+// "/", the three tab icons (idle, running, warning), and the files under dist/ and vendor/. It never serves a directory listing,
 // and never the build script, the package file or the readme that sit beside them. The login
 // wraps this like every other route.
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
@@ -293,8 +294,8 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case p == "/":
 		file = "index.html"
-	case p == "/favicon.svg":
-		file = "favicon.svg"
+	case p == "/favicon.svg" || p == "/favicon-running.svg" || p == "/favicon-warning.svg":
+		file = strings.TrimPrefix(p, "/")
 	case strings.HasPrefix(p, "/dist/") || strings.HasPrefix(p, "/vendor/"):
 		file = strings.TrimPrefix(path.Clean(p), "/")
 	default:

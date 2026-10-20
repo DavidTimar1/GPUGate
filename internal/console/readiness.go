@@ -348,7 +348,9 @@ func (s *Server) rentalPrefix(claimID int64) string {
 		return ""
 	}
 	project := "?"
-	if c, found, err := s.store.GetClaim(claimID); err == nil && found {
+	if c, found, err := s.store.GetClaim(claimID); err != nil {
+		s.log.Add("console", "could not read claim "+strconv.FormatInt(claimID, 10)+" for its project: "+err.Error())
+	} else if found {
 		project = c.Project
 	}
 	return "Auto-move for '" + project + "': "
@@ -384,7 +386,9 @@ func (s *Server) destroyUndeployedClaim(claimID int64, providerKey, providerID, 
 	}
 	displayName := providerID
 	var price *float64
-	if c, found, err := s.store.GetClaim(claimID); err == nil && found {
+	if c, found, err := s.store.GetClaim(claimID); err != nil {
+		s.log.Add("console", "could not read claim "+strconv.FormatInt(claimID, 10)+" for its destroy record: "+err.Error())
+	} else if found {
 		displayName = c.ShapeCode + " (" + c.Hostname + ")"
 		price = c.PricePerHour
 	}

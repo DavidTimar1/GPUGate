@@ -330,6 +330,9 @@ type ServingInfo struct {
 	Project string
 	// IdleMinutes is the claim's idle timeout, 0 meaning never.
 	IdleMinutes int
+	// ClaimID is the claim this machine was launched under; the strip's card carries it so the
+	// page can tell its own launch's machine from any other.
+	ClaimID int64
 }
 
 // ServingInfoByProviderID returns, for every machine on providerKey currently loading, serving,
@@ -340,7 +343,7 @@ type ServingInfo struct {
 // ServingState itself.
 func (s *Store) ServingInfoByProviderID(providerKey string) (map[string]ServingInfo, error) {
 	rows, err := s.db.Query(
-		`SELECT provider_id, model_name, serving_state, loading_since, serving_since, last_output_at, project, idle_minutes
+		`SELECT provider_id, model_name, serving_state, loading_since, serving_since, last_output_at, project, idle_minutes, id
 		 FROM machine_claim
 		 WHERE provider_key = ? AND provider_id IS NOT NULL AND serving_state IN ('loading', 'serving', 'gave_up')`,
 		providerKey,
@@ -353,15 +356,16 @@ func (s *Store) ServingInfoByProviderID(providerKey string) (map[string]ServingI
 	for rows.Next() {
 		var providerID, modelName, servingState, project string
 		var idleMinutes int
+		var claimID int64
 		var loadingSince, servingSince, lastOutputAt sql.NullString
-		if err := rows.Scan(&providerID, &modelName, &servingState, &loadingSince, &servingSince, &lastOutputAt, &project, &idleMinutes); err != nil {
+		if err := rows.Scan(&providerID, &modelName, &servingState, &loadingSince, &servingSince, &lastOutputAt, &project, &idleMinutes, &claimID); err != nil {
 			return nil, fmt.Errorf("read a serving info row for %s: %w", providerKey, err)
 		}
 		since := loadingSince.String
 		if servingState == "serving" {
 			since = servingSince.String
 		}
-		out[providerID] = ServingInfo{ModelName: modelName, ServingState: servingState, Since: since, LastOutputAt: lastOutputAt.String, Project: project, IdleMinutes: idleMinutes}
+		out[providerID] = ServingInfo{ModelName: modelName, ServingState: servingState, Since: since, LastOutputAt: lastOutputAt.String, Project: project, IdleMinutes: idleMinutes, ClaimID: claimID}
 	}
 	return out, rows.Err()
 }

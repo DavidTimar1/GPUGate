@@ -65,7 +65,7 @@ func (s *Store) GetClaim(claimID int64) (Claim, bool, error) {
 	err := s.db.QueryRow(
 		`SELECT id, provider_key, shape_code, location, hostname, price_per_hour, asked_at, provider_id, state, detail,
 		        project, model_name, image_or_template, serve_args, serve_env_keys, serving_state, loading_since, serving_since, settled_at,
-		        startup_script_id, engine_version
+		        startup_script_id, engine_version, idle_minutes
 		 FROM machine_claim WHERE id = ?`, claimID,
 	).Scan(&c.ID, &c.ProviderKey, &c.ShapeCode, &c.Location, &c.Hostname, &c.PricePerHour, &c.AskedAt, &c.ProviderID, &c.State, &c.Detail,
 		&c.Project, &c.ModelName, &c.ImageOrTemplate, &c.ServeArgs, &c.ServeEnvKeys, &c.ServingState, &c.LoadingSince, &c.ServingSince, &c.ConfirmedAt,
@@ -75,6 +75,25 @@ func (s *Store) GetClaim(claimID int64) (Claim, bool, error) {
 	}
 	if err != nil {
 		return Claim{}, false, fmt.Errorf("read claim %d: %w", claimID, err)
+	}
+	return c, true, nil
+}
+
+// GetClaimMachine answers claimID with only the fields that name its machine and what it costs
+// (ProviderKey, ProviderID, ShapeCode, Hostname, PricePerHour, ServingState), read by its own
+// short query. The mover falls back to it to destroy a move's new machine when GetClaim keeps
+// failing, so a broken wide read can never leave a rented machine with nobody able to name it.
+func (s *Store) GetClaimMachine(claimID int64) (Claim, bool, error) {
+	c := Claim{ID: claimID}
+	err := s.db.QueryRow(
+		`SELECT provider_key, shape_code, hostname, price_per_hour, provider_id, serving_state
+		 FROM machine_claim WHERE id = ?`, claimID,
+	).Scan(&c.ProviderKey, &c.ShapeCode, &c.Hostname, &c.PricePerHour, &c.ProviderID, &c.ServingState)
+	if err == sql.ErrNoRows {
+		return Claim{}, false, nil
+	}
+	if err != nil {
+		return Claim{}, false, fmt.Errorf("read the machine of claim %d: %w", claimID, err)
 	}
 	return c, true, nil
 }

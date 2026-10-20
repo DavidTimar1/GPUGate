@@ -43,7 +43,7 @@ Each project you create gets a fixed local address, `/p/<project>/v1`, that spea
 | `internal/destroyer/` | The one destroy, used by the console and by the `destroy` command. |
 | `internal/logring/`, `internal/envfile/` | The in-memory log the console shows, and the reader for the settings file. |
 | `ui/` | The console page: `index.html`, the source in `src/`, the built copy in `dist/`, and htmx and the IBM Plex fonts in `vendor/`. |
-| `catalog/models.json` | The models, each with the figures the fit needs and the basis of each figure. |
+| `catalog/models.json` | The models, each with the figures the fit needs and the basis of each figure. How to add one: [Adding a model](adding-a-model.md). |
 | `gate.sh` | Build, start, stop, restart, status and log. The binary goes to `dist/gpugate`. |
 
 ## One program, one port
@@ -110,6 +110,12 @@ A project can have auto-move switched on. Then GPUGate keeps looking for a cheap
 ## The console page
 
 Plain JavaScript draws and sorts the machine table, filters and ticks, draws the project list, and drives the launch panel. htmx loads the parts the server renders, the running strip and the sessions list, and posts the new-project form. There is no framework and no bundler; `ui/src` is copied to `ui/dist` by `npm --prefix ui run build`, the built copy is committed, and CI fails when the two differ.
+
+The machine table has one source: a read of both providers. Page open, Refresh and choosing a model all make that same read, and Launch's cheaper-machine check makes its own live read and puts it on the table too, so the table never shows fewer machines than the check just saw. Typing in the context and chats boxes only re-judges the fit column against the last read. A model's saved context and chats fill the boxes after it is chosen, whether by a person or restored on page open; when that changes a figure the fit column is re-judged the same way, so the verdicts always match the figures the boxes show.
+
+Page open locks the launch path (What to run and Machines on offer) behind a spinner until the remembered model, its saved figures and the first read have all arrived, so nothing stale can be clicked; the running strip stays live so a billing machine can always be destroyed, and a ceiling releases the lock if a request hangs. Launch locks the same path from the press until the new machine's card shows in "Running now" and the provider has accepted the create (the page follows the launch's own claim), or at once on a refusal; Delete stays usable throughout.
+
+The browser tab shows whether a meter runs: its icon and title change with the same running strip the status pill reads (`setTabSignal` in `ui/src/app.js`), so a background or pinned tab tells the operator at a glance. A provider that could not be asked, an unconfirmed machine or a failed strip shows a warning, never the idle look, because "could not find out" is not "nothing is running".
 
 The page has Machines (what is running, what to run, the machine table), Projects, and Sessions (every rental with its time, cost and tokens). A log drawer shows what the program is doing. The routes the page calls are registered in `internal/console/server.go`.
 

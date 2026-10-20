@@ -145,6 +145,37 @@ func (s *Server) modelOptions() []modelOptionJSON {
 	return out
 }
 
+// tableRows turns provider shapes into the table's rows: each carries its tick and its verdict
+// for the chosen model. GET /api/machines and GET /api/launch-offer both build the page's rows
+// here, so the table and the offer's fresh read are the same kind of answer.
+func (s *Server) tableRows(shapes []provider.Shape, model *fit.Model, plan fit.Plan) ([]shapeJSON, error) {
+	ticked, err := s.store.TickedShapeCodes()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]shapeJSON, 0, len(shapes))
+	for _, shape := range shapes {
+		out = append(out, shapeJSON{
+			ProviderKey:           shape.ProviderKey,
+			ShapeCode:             shape.Code,
+			DisplayName:           shape.DisplayName,
+			GPUName:               shape.GPUName,
+			GPUCount:              shape.GPUCount,
+			CardArchitecture:      shape.CardArchitecture,
+			CardYear:              shape.CardYear,
+			CardPerGPUVRAMGB:      perGPUVRAMGB(shape.WholeMachineVRAMGB, shape.GPUCount),
+			CardComputeCapability: shape.ComputeCapability,
+			CardFP8:               shape.CardFP8,
+			WholeMachineVRAMGB:    shape.WholeMachineVRAMGB,
+			OnDemandPricePerHour:  shape.OnDemandPricePerHour,
+			OrderableLocations:    emptyIfNil(shape.OrderableLocations),
+			IsTicked:              ticked[shape.Code],
+			ModelFit:              s.judge(model, plan, shape),
+		})
+	}
+	return out, nil
+}
+
 // handleMachinesAndModels answers GET /api/machines: it asks every provider with a configured
 // credential for its shapes and its live on-demand availability, judges every shape against the
 // chosen model, and answers the whole table. A provider that could not be asked is reported in
@@ -191,34 +222,12 @@ func (s *Server) handleMachinesAndModels(w http.ResponseWriter, r *http.Request)
 	}
 	availabilityKnown := attempted > 0 && failed == 0
 
-	ticked, err := s.store.TickedShapeCodes()
+	sortByPrice(allShapes)
+	out, err := s.tableRows(allShapes, model, plan)
 	if err != nil {
 		s.log.Add("console", "could not read the shape ticks: "+err.Error())
 		writeRefusal(w, http.StatusInternalServerError, "Could not read which shapes are ticked.")
 		return
-	}
-
-	sortByPrice(allShapes)
-
-	out := make([]shapeJSON, 0, len(allShapes))
-	for _, shape := range allShapes {
-		out = append(out, shapeJSON{
-			ProviderKey:           shape.ProviderKey,
-			ShapeCode:             shape.Code,
-			DisplayName:           shape.DisplayName,
-			GPUName:               shape.GPUName,
-			GPUCount:              shape.GPUCount,
-			CardArchitecture:      shape.CardArchitecture,
-			CardYear:              shape.CardYear,
-			CardPerGPUVRAMGB:      perGPUVRAMGB(shape.WholeMachineVRAMGB, shape.GPUCount),
-			CardComputeCapability: shape.ComputeCapability,
-			CardFP8:               shape.CardFP8,
-			WholeMachineVRAMGB:    shape.WholeMachineVRAMGB,
-			OnDemandPricePerHour:  shape.OnDemandPricePerHour,
-			OrderableLocations:    emptyIfNil(shape.OrderableLocations),
-			IsTicked:              ticked[shape.Code],
-			ModelFit:              s.judge(model, plan, shape),
-		})
 	}
 
 	s.cacheMu.Lock()
@@ -241,7 +250,9 @@ type recalcShapeJSON struct {
 }
 
 // handleRecalculate answers GET /api/models: it asks no provider anything, and re-judges the
-// shapes already read by the last successful Refresh against the figures now in the boxes.
+// shapes already read by the last complete read (a Refresh, or a Launch press's offer) against the figures now in the boxes. The
+// page uses it only for typing in the context and chats boxes; choosing a model reloads the whole
+// table through GET /api/machines instead.
 func (s *Server) handleRecalculate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeRefusal(w, http.StatusMethodNotAllowed, "GET is the only method this call answers.")

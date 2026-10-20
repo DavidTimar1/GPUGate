@@ -62,6 +62,12 @@ document.addEventListener("htmx:beforeSwap", function (ev) {
   }
 }, true);
 
+// Attributes on every input the page builds. No input here is a credential, and password managers
+// ignore autocomplete="off", so each manager's own documented ignore attribute goes with it:
+// 1Password data-1p-ignore, LastPass data-lpignore, Dashlane data-form-type="other", Bitwarden
+// data-bwignore. Keep ids and names free of one-time-code and password words (token, code, pin, otp).
+var NOFILL = 'autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" data-bwignore';
+
 function $(selector, root) { return (root || document).querySelector(selector); }
 function $$(selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); }
 function byId(id) { return document.getElementById(id); }
@@ -103,6 +109,39 @@ var PROJECT_KEY = "gg-console-project";
 // The project every install starts with. The server never deletes it, so the page offers no
 // Delete for it and falls back to it when no remembered project exists.
 var DEFAULT_PROJECT = "coding";
+
+// The two machine-table checkboxes are remembered per browser, like the theme and the project:
+// they are a viewing preference. A ticked box is stored as "1" and an unticked one is removed.
+var FILTER_AVAILABLE_KEY = "gg-console-filter-available";
+var FILTER_HAS_MODEL_KEY = "gg-console-filter-has-model";
+function rememberFilter(key, on) {
+  try {
+    if (on) localStorage.setItem(key, "1"); else localStorage.removeItem(key);
+  } catch (e) {}
+}
+function filterRemembered(key) {
+  try { return localStorage.getItem(key) === "1"; } catch (e) { return false; }
+}
+// initMachineFilters runs before the table first renders, so the boxes, state.filters and the
+// filter button's count all start from the remembered values.
+function initMachineFilters() {
+  state.filters.availableOnly = filterRemembered(FILTER_AVAILABLE_KEY);
+  state.filters.hasModelOnly = filterRemembered(FILTER_HAS_MODEL_KEY);
+  byId("filter-available").checked = state.filters.availableOnly;
+  byId("filter-has-model").checked = state.filters.hasModelOnly;
+}
+
+// The chosen model is remembered per browser too. Choosing "Choose a model" removes the key.
+// populateModelSelect selects the stored name again once the catalog has filled the dropdown.
+var MODEL_KEY = "gg-console-model";
+function rememberModel(name) {
+  try {
+    if (name) localStorage.setItem(MODEL_KEY, name); else localStorage.removeItem(MODEL_KEY);
+  } catch (e) {}
+}
+function modelRemembered() {
+  try { return localStorage.getItem(MODEL_KEY) || ""; } catch (e) { return ""; }
+}
 
 var state = {
   loaded: false, showAll: false, shapes: [], models: [], projects: [], availabilityKnown: false,
@@ -188,12 +227,22 @@ byId("ham").addEventListener("click", function () { setNav(true); });
 byId("navclose").addEventListener("click", function () { setNav(false); byId("ham").focus(); });
 byId("navscrim").addEventListener("click", function () { setNav(false); byId("ham").focus(); });
 
+// The tab title is the running-signal prefix (see setTabSignal) plus the view name. The page starts
+// in the warning state: nothing is known until the first answer from /api/running.
+var tabPrefix = "(!) ";
+var viewTitle = "GPUGate";
+function paintTitle() {
+  var t = tabPrefix + viewTitle;
+  if (document.title !== t) document.title = t;
+}
+
 function showView(name) {
   ["machines", "projects", "sessions"].forEach(function (n) { byId("v-" + n).hidden = n !== name; });
   $$(".nav a").forEach(function (a) {
     if (a.dataset.view === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
-  document.title = "GPUGate: " + name.charAt(0).toUpperCase() + name.slice(1);
+  viewTitle = "GPUGate: " + name.charAt(0).toUpperCase() + name.slice(1);
+  paintTitle();
 }
 function route() {
   var name = (location.hash || "#machines").slice(1);
@@ -214,15 +263,31 @@ byId("statuspill").addEventListener("click", function () {
   }, 30);
 });
 
-// The "i" buttons expand their note in place.
+// The "i" buttons expand their note in place. openedInfo is the one opened last, which Escape closes
+// when focus is not on an open one.
+var openedInfo = null;
 document.addEventListener("click", function (ev) {
   var b = ev.target.closest(".info");
-  if (!b || b.id === "expall") return;
-  var note = byId(b.getAttribute("aria-controls"));
-  var open = b.getAttribute("aria-expanded") !== "true";
-  b.setAttribute("aria-expanded", String(open));
-  if (note) note.hidden = !open;
+  if (!b) return;
+  // The "explain every setting" button toggles itself and its notes in its own handler.
+  if (b.id !== "expall") {
+    var note = byId(b.getAttribute("aria-controls"));
+    var open = b.getAttribute("aria-expanded") !== "true";
+    b.setAttribute("aria-expanded", String(open));
+    if (note) note.hidden = !open;
+  }
+  if (b.getAttribute("aria-expanded") === "true") openedInfo = b;
 });
+
+// openInfoButton is the "i" button Escape closes: the focused one if it is open, else the one opened
+// last that is still on the page, else the last open one in the page.
+function openInfoButton() {
+  var active = document.activeElement;
+  if (active && active.classList && active.classList.contains("info") && active.getAttribute("aria-expanded") === "true") return active;
+  if (openedInfo && openedInfo.isConnected && openedInfo.getAttribute("aria-expanded") === "true") return openedInfo;
+  var all = $$(".info[aria-expanded=true]");
+  return all.length ? all[all.length - 1] : null;
+}
 
 // ---------------------------------------------------------------------------------------------
 // The confirm sheet: Delete machine, Delete project, Clear list. `run` does the work and answers
@@ -440,10 +505,12 @@ byId("filter-provider").addEventListener("change", function (ev) {
 });
 byId("filter-available").addEventListener("change", function (ev) {
   state.filters.availableOnly = ev.target.checked;
+  rememberFilter(FILTER_AVAILABLE_KEY, ev.target.checked);
   if (state.loaded) renderTable();
 });
 byId("filter-has-model").addEventListener("change", function (ev) {
   state.filters.hasModelOnly = ev.target.checked;
+  rememberFilter(FILTER_HAS_MODEL_KEY, ev.target.checked);
   if (state.loaded) renderTable();
 });
 byId("filtbtn").addEventListener("click", function () {
@@ -570,7 +637,7 @@ function renderTable() {
     // own id and name, numbered by its place in this render.
     return '<tr data-shape-code="' + escapeHtml(s.shape_code) + '" data-provider-key="' +
       escapeHtml(s.provider_key) + '"' + (launchable ? "" : ' class="dim"') + ">" +
-      '<td class="c-allow"><label class="check"><input type="checkbox" id="allow-' + i + '" name="allow_' + i + '" autocomplete="off" data-code="' + escapeHtml(s.shape_code) + '"' +
+      '<td class="c-allow"><label class="check"><input type="checkbox" id="allow-' + i + '" name="allow_' + i + '" ' + NOFILL + ' data-code="' + escapeHtml(s.shape_code) + '"' +
       (s.is_ticked ? " checked" : "") + ' aria-label="Allowed to rent: ' + escapeHtml(s.shape_code) +
       '"><span class="al">Allowed</span></label></td>' +
       '<td class="c-name inst mono">' + name + "</td>" +
@@ -629,7 +696,20 @@ function populateModelSelect(models) {
     return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(label) + "</option>";
   }).join("");
   sel.value = names.indexOf(current) !== -1 ? current : "";
+  // Nothing chosen yet (page open): bring back this browser's last choice, with every effect a
+  // real choice has. A stored name the catalog no longer has is dropped.
+  var restored = false;
+  if (!sel.value) {
+    var stored = modelRemembered();
+    if (stored && names.indexOf(stored) !== -1) {
+      sel.value = stored;
+      restored = true;
+    } else if (stored) {
+      rememberModel("");
+    }
+  }
   syncBatchingBoxes();
+  if (restored) restoredSettings = applyModelChoice(sel.value);
 }
 
 // The model-settings boxes: label, box and an "i" note each, mapped to GET/PUT
@@ -660,10 +740,10 @@ function buildModelSettingBoxes() {
     if (box.checkbox) {
       return '<div class="field"><div class="lab"><span id="' + box.id + '-lab">' + escapeHtml(box.label) + "</span>" + info +
         '</div><label class="switch"><input type="checkbox" role="switch" id="' + box.id + '" name="' + box.key +
-        '" autocomplete="off" checked aria-labelledby="' + box.id + '-lab"><span id="' + box.id + '-state">On</span></label>' + note + "</div>";
+        '" ' + NOFILL + ' checked aria-labelledby="' + box.id + '-lab"><span id="' + box.id + '-state">On</span></label>' + note + "</div>";
     }
     return '<div class="field"><div class="lab"><label for="' + box.id + '">' + escapeHtml(box.label) + "</label>" + info +
-      '</div><input type="number" step="any" id="' + box.id + '" name="' + box.key + '" autocomplete="off" placeholder="not set">' + note + "</div>";
+      '</div><input type="number" step="any" id="' + box.id + '" name="' + box.key + '" ' + NOFILL + ' placeholder="not set">' + note + "</div>";
   }).join("");
   byId("ms-thinking").addEventListener("change", function () {
     byId("ms-thinking-state").textContent = this.checked ? "On" : "Off";
@@ -744,17 +824,24 @@ async function loadModelSettings(name) {
   // Context and chats keep what they hold unless the new model carries a saved figure, so these
   // two boxes' VALUES change only then; the note beneath each is always refreshed, since it names
   // the model and engine defaults for whichever model is now chosen.
+  var figuresChanged = false;
   ["context_thousands", "chats"].forEach(function (key) {
     var field = (data.settings && data.settings[key]) || {};
     var boxId = key === "context_thousands" ? "ctx" : "chats";
     if (field.saved !== null && field.saved !== undefined) {
-      byId(boxId).value = numOrEmpty(field.saved);
+      var saved = numOrEmpty(field.saved);
+      if (byId(boxId).value !== String(saved)) figuresChanged = true;
+      byId(boxId).value = saved;
     }
     if (key === "context_thousands") ctxModelLine = settingLine(field, true);
     else chatsModelLine = settingLine(field, false);
   });
   paintFieldNotes();
   syncBatchingBoxes();
+  // The table was judged at the figures the boxes held before this answer. When the saved figures
+  // differ and no load is in flight, re-judge it now (asks no provider). A load still in flight
+  // is caught by its own box comparison when its answer lands (loadTable), so it is left alone.
+  if (figuresChanged && loadsInFlight === 0) markStaleAndRecalculate(0);
   MODEL_SETTING_BOXES.forEach(function (box) {
     var field = (data.settings && data.settings[box.key]) || {};
     var input = byId(box.id);
@@ -836,15 +923,15 @@ function deriveBatchedTokens(ctxThousands, chats) {
 // --batch-size N` default 2048, `-ub, --ubatch-size N` default 512, `--cache-reuse N` default 0
 // (off).
 var LLAMA_CPP_BATCH_BOXES = [
-  { id: "batch-b", param: "batch_tokens", label: "Batch (-b)", note: "Engine default: 2048." },
-  { id: "batch-ub", param: "micro_batch_tokens", label: "Ubatch (-ub)", note: "Engine default: 512." },
-  { id: "batch-cache-reuse", param: "cache_reuse_tokens", label: "Cache reuse", note: "The --cache-reuse chunk size. Engine default: 0 (off)." }
+  { id: "batch-b", name: "batch_size_b", param: "batch_tokens", label: "Batch (-b)", note: "Engine default: 2048." },
+  { id: "batch-ub", name: "ubatch_size_u", param: "micro_batch_tokens", label: "Ubatch (-ub)", note: "Engine default: 512." },
+  { id: "batch-cache-reuse", name: "cache_reuse_chunk", param: "cache_reuse_tokens", label: "Cache reuse", note: "The --cache-reuse chunk size. Engine default: 0 (off)." }
 ];
 function buildBatchBoxes() {
   byId("batch-gguf").innerHTML = LLAMA_CPP_BATCH_BOXES.map(function (box) {
     return '<div class="field"><div class="lab"><label for="' + box.id + '">' + escapeHtml(box.label) +
       "</label>" + infoButton(box.id + "-note", box.label) + "</div>" +
-      '<input type="number" id="' + box.id + '" name="' + box.param + '" autocomplete="off" min="0" inputmode="numeric">' +
+      '<input type="number" id="' + box.id + '" name="' + box.name + '" ' + NOFILL + ' min="0" inputmode="numeric">' +
       '<p class="note" id="' + box.id + '-note" hidden>' + escapeHtml(box.note) +
       " Sent with each launch and never saved. Empty means the engine default.</p></div>";
   }).join("");
@@ -859,17 +946,42 @@ function syncBatchingBoxes() {
   byId("batch-gguf").hidden = !gguf;
   var ctxThousands = parseInt(byId("ctx").value, 10) || 0;
   var chats = parseInt(byId("chats").value, 10) || 0;
-  byId("batched-tokens").placeholder = ctxThousands && chats
+  byId("step-budget").placeholder = ctxThousands && chats
     ? "derived: " + deriveBatchedTokens(ctxThousands, chats) : "derived";
 }
 
 // ---------------------------------------------------------------------------------------------
 // Loading the table, and recalculating the model column by itself.
 // ---------------------------------------------------------------------------------------------
+// applyShapes puts a provider read on the page: the table's rows and whether availability was
+// known. `_arrivalIndex` records the order the answer arrived in, per row, so a third click on a
+// sorted column heading (state.sort.column === null) has an order to return to.
+function applyShapes(shapes, availabilityKnown) {
+  shapes.forEach(function (s, i) { s._arrivalIndex = i; });
+  state.shapes = shapes;
+  state.availabilityKnown = availabilityKnown;
+}
+
+// loadSeq numbers the loads, so an answer that arrives after a newer load was sent is discarded
+// and the table always shows the answer to the latest model, context and chats asked for.
+var loadSeq = 0;
+// The page-open lock waits on these: the settings load of a restored model (populateModelSelect)
+// and the latest immediate recalculation (markStaleAndRecalculate). Each may start the other
+// after the first load ends, so the lock re-checks both until neither changes.
+var restoredSettings = null;
+var lastRecalc = null;
 async function loadTable() {
+  var mySeq = ++loadSeq;
   var ctx = byId("ctx").value;
   var chats = byId("chats").value;
   var model = byId("model-select").value;
+  // The dropdown fills from this very answer, so on the first load it is still empty: send this
+  // browser's remembered model with it, and the one read already carries that model's verdicts.
+  var sentRemembered = false;
+  if (!model && state.models.length === 0) {
+    model = modelRemembered();
+    sentRemembered = model !== "";
+  }
   var response;
   try {
     response = await fetch(
@@ -877,25 +989,35 @@ async function loadTable() {
       "&chats=" + encodeURIComponent(chats) + "&model=" + encodeURIComponent(model)
     );
   } catch (e) {
+    if (mySeq !== loadSeq) return;
     state.loadFailed = true;
     showMsg("Could not reach the server to read the machine table.");
     renderTable();
     return;
   }
+  if (mySeq !== loadSeq) return;
   if (!response.ok) {
+    // A remembered model the catalog no longer has is refused before any provider is asked: drop
+    // it and load again without one.
+    if (sentRemembered && response.status === 400) {
+      rememberModel("");
+      return loadTable();
+    }
     var refusal = await response.json().catch(function () { return {}; });
+    if (mySeq !== loadSeq) return;
     state.loadFailed = true;
     showMsg(refusal.detail || "The console could not read the machine table.");
     renderTable();
     return;
   }
   var data = await response.json();
+  if (mySeq !== loadSeq) return;
   state.loadFailed = false;
-  // `_arrivalIndex` records the order the answer arrived in, per row, so a third click on a
-  // sorted column heading (state.sort.column === null) has an order to return to.
-  data.shapes.forEach(function (s, i) { s._arrivalIndex = i; });
-  state.shapes = data.shapes;
-  state.availabilityKnown = data.availability_known;
+  applyShapes(data.shapes, data.availability_known);
+  // This answer carries fresh verdicts for the figures it was sent: a recalculation asked before
+  // it was sent must not land on top of it (changeSeq), and one still wanted is asked again below.
+  changeSeq++;
+  clearTimeout(recalcTimer);
   state.stale = false;
   state.recalcFailed = false;
   (data.availability_problems || []).forEach(function (problem) { showMsg(problem, "warn"); });
@@ -903,29 +1025,120 @@ async function loadTable() {
   populateModelSelect(state.models);
   populateProviderFilter();
   renderTable();
-  // The boxes changed while this answer was in flight: its verdicts are for the old figures.
+  // The boxes changed while this answer was in flight (a typed figure, or a model's saved figures
+  // landing from loadModelSettings): its verdicts are for the old figures.
   if (byId("ctx").value !== ctx || byId("chats").value !== chats || byId("model-select").value !== model) {
     markStaleAndRecalculate(0);
   }
 }
 
-// The one path that loads the table: the Refresh button runs it, and so does page open.
+// The launch path (What to run, Machines on offer) is locked, with a spinner over it, for two
+// separate reasons, each raised and lifted on its own so one never lifts the other:
+//   open   from the first paint until the remembered model, its saved figures and the first
+//          machine list have all arrived, so nothing stale can be clicked;
+//   launch from the press of Launch until the new machine's card shows in "Running now" and the
+//          provider accepted the create (or the launch failed).
+// "Running now" is outside the lock so a billing machine stays destroyable. Each reason has a
+// ceiling: a hung request must not leave the launch path locked, so after it the lock ends with
+// one notice and the loads carry on. LOCK_CEILING_MS is the page-open one; LAUNCH_CEILING_MS is
+// worst-case press to 202 (about 150 s) plus the provider's create (30 s) plus a strip poll. The
+// ceilings only unlock the page; they never touch a launch.
+var LOCK_CEILING_MS = 90000;
+var LAUNCH_CEILING_MS = 300000;
+var LOCK_TEXT_OPEN = "Loading the model and the machine list";
+var LOCK_TEXT_LAUNCH = "Sending the rental, waiting for the machine to appear in Running now";
+var lockReasons = { open: true, launch: false }; // the page starts locked, as index.html draws it
+function launchLockUp() {
+  return lockReasons.open || lockReasons.launch;
+}
+// applyLock paints the lock from the two reasons.
+function applyLock() {
+  var up = launchLockUp();
+  byId("launch-path").inert = up;
+  byId("launch-path").setAttribute("aria-busy", up ? "true" : "false");
+  byId("launch-lock").hidden = !up;
+  $(".vh", byId("launch-lock")).textContent = lockReasons.launch ? LOCK_TEXT_LAUNCH : LOCK_TEXT_OPEN;
+}
+function endLaunchLock() {
+  if (!lockReasons.open) return;
+  lockReasons.open = false;
+  applyLock();
+}
+
+// raiseLaunchLock locks the launch path for one launch, at once, and takes focus and the view to
+// "Running now" (outside the lock) so the pressed control is not left focused inside it.
+// providerKey and shapeCode name the pressed machine, for focus after a failure.
+var launchPress = null;       // {providerKey, shapeCode} of the machine the lock was raised for
+var launchCeiling = null;     // the launch lock's ceiling timer
+function raiseLaunchLock(providerKey, shapeCode) {
+  launchPress = { providerKey: providerKey, shapeCode: shapeCode };
+  clearTimeout(launchCeiling);
+  launchCeiling = setTimeout(function () {
+    if (!lockReasons.launch) return;
+    stopLaunchWatch();
+    liftLaunchLock();
+    showMsg("Still waiting for the new machine to show in Running now. The page is unlocked; look at the strip before pressing Rent again.", "warn");
+  }, LAUNCH_CEILING_MS);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  byId("run-h").focus({ preventScroll: true });
+  lockReasons.launch = true;
+  applyLock();
+}
+function liftLaunchLock() {
+  clearTimeout(launchCeiling);
+  launchCeiling = null;
+  if (!lockReasons.launch) return;
+  lockReasons.launch = false;
+  applyLock();
+}
+
+async function openLaunchPath() {
+  var ceiling = setTimeout(function () {
+    if (!lockReasons.open) return;
+    endLaunchLock();
+    showMsg("Still loading. The page is unlocked; the list may be out of date.", "warn");
+  }, LOCK_CEILING_MS);
+  try {
+    await refreshMachineTable();
+    var seenSettings, seenRecalc;
+    do {
+      seenSettings = restoredSettings;
+      seenRecalc = lastRecalc;
+      // Each load shows its own failure toast and resolves, so a rejection here is not expected;
+      // the finally below ends the lock whatever happens.
+      if (seenSettings) await seenSettings.catch(function () {});
+      if (seenRecalc) await seenRecalc.catch(function () {});
+    } while (seenSettings !== restoredSettings || seenRecalc !== lastRecalc);
+  } finally {
+    clearTimeout(ceiling);
+    endLaunchLock();
+  }
+}
+
+// The one path that reads the providers into the table: the Refresh button runs it, page open
+// runs it, and so does choosing a model. The overlay stays up until the last load in flight ends.
+var loadsInFlight = 0;
 async function refreshMachineTable() {
   state.loaded = true;
-  byId("table-overlay").hidden = false;
+  loadsInFlight++;
+  if (!launchLockUp()) byId("table-overlay").hidden = false;
   byId("refresh-btn").disabled = true;
   try {
     await loadTable();
   } finally {
-    byId("table-overlay").hidden = true;
-    byId("refresh-btn").disabled = false;
+    loadsInFlight--;
+    if (loadsInFlight === 0) {
+      byId("table-overlay").hidden = true;
+      byId("refresh-btn").disabled = false;
+    }
   }
 }
 byId("refresh-btn").addEventListener("click", refreshMachineTable);
 
-// Any change to the model, context or chats recalculates the model column by itself. changeSeq
-// numbers the changes, so an answer that arrives after a newer change is discarded and the column
-// always matches the boxes as they are now. The number boxes wait for typing to pause.
+// A change to the context or chats recalculates the model column by itself, without asking any
+// provider; choosing a model reloads the whole table instead (reloadForModel). changeSeq numbers
+// the changes, so an answer that arrives after a newer change is discarded and the column always
+// matches the boxes as they are now. The number boxes wait for typing to pause.
 var changeSeq = 0;
 var recalcTimer = null;
 function markStaleAndRecalculate(delayMs) {
@@ -938,7 +1151,7 @@ function markStaleAndRecalculate(delayMs) {
   clearTimeout(recalcTimer);
   if (!state.loaded) return;
   if (delayMs > 0) recalcTimer = setTimeout(recalculateModels, delayMs);
-  else recalculateModels();
+  else lastRecalc = recalculateModels();
 }
 ["ctx", "chats"].forEach(function (id) {
   byId(id).addEventListener("input", function () {
@@ -947,15 +1160,34 @@ function markStaleAndRecalculate(delayMs) {
     markStaleAndRecalculate(400);
   });
 });
-byId("model-select").addEventListener("change", function () {
+// applyModelChoice is what a chosen model does to the boxes, whether a person chose it or the
+// page brought it back from storage. The table's rows are not part of it: a choice reloads them
+// (reloadForModel), and a restored model rode in on the load that filled the dropdown.
+function applyModelChoice(name) {
   syncBatchingBoxes();
-  markStaleAndRecalculate(0);
-  loadModelSettings(this.value);
+  return loadModelSettings(name);
+}
+// reloadForModel reads the providers again with the chosen model, the same read Refresh makes, so
+// the rows, prices, availability and verdicts all come from one fresh answer. It supersedes any
+// pending recalculation and any load still in flight (loadSeq).
+function reloadForModel() {
+  changeSeq++;
+  clearTimeout(recalcTimer);
+  state.stale = true;
+  state.recalcFailed = false;
+  if (state.loaded) renderTable();
+  refreshMachineTable();
+}
+byId("model-select").addEventListener("change", function () {
+  rememberModel(this.value);
+  applyModelChoice(this.value);
+  reloadForModel();
 });
 
 // recalculateModels asks nothing of any provider. It recomputes the model verdicts alone, at the
 // figures now in the boxes, against the machines already on the page: their prices and
-// availability came from the last Refresh and are left untouched here. A refusal is shown in the
+// availability came from the last provider read (a Refresh, a model choice, or a Launch press)
+// and are left untouched here. It runs for typing in the context and chats boxes only. A refusal is shown in the
 // message overlay and the column reads "out of date" until a figure changes again.
 async function recalculateModels() {
   var mySeq = changeSeq;
@@ -1091,10 +1323,10 @@ function launchPanelHTML(s, vals) {
   return '<div class="lp">' +
     '<p class="sentence">' + launchSentence(s, launchServingText(), whereChoice, projectChoice) + "</p>" +
     '<div class="frow grid">' +
-    '<div class="field"><label class="lab" for="lp-project">Project</label><select id="lp-project" name="launch_project" autocomplete="off" class="lp-project">' + projectOptions + "</select></div>" +
-    '<div class="field"><label class="lab" for="lp-where">Where</label><select id="lp-where" name="launch_where" autocomplete="off" class="lp-where">' + whereOptions + "</select></div>" +
+    '<div class="field"><label class="lab" for="lp-project">Project</label><select id="lp-project" name="launch_project" ' + NOFILL + ' class="lp-project">' + projectOptions + "</select></div>" +
+    '<div class="field"><label class="lab" for="lp-where">Where</label><select id="lp-where" name="launch_where" ' + NOFILL + ' class="lp-where">' + whereOptions + "</select></div>" +
     '<div class="field"><div class="lab"><label for="lp-idle">Destroy after idle (min)</label>' + infoButton("lp-idle-note", "Destroy after idle") + "</div>" +
-    '<input type="number" id="lp-idle" name="launch_idle_minutes" autocomplete="off" class="lp-idle" min="0" value="' + escapeHtml(idle) + '" inputmode="numeric">' +
+    '<input type="number" id="lp-idle" name="launch_idle_minutes" ' + NOFILL + ' class="lp-idle" min="0" value="' + escapeHtml(idle) + '" inputmode="numeric">' +
     '<p class="note" id="lp-idle-note" hidden>Destroyed after this many minutes with no request through GPUGate. <b>0</b> means never. You can change it later on the machine\'s own card.</p></div>' +
     "</div>" +
     '<div class="actions"><button class="btn lp-cancel" type="button">Cancel</button>' +
@@ -1107,24 +1339,44 @@ function openLaunchRowFor(tr, s) {
     openLaunchRow.dataset.providerKey === s.provider_key;
   closeLaunchRow();
   if (sameShape) return; // the same row clicked again just puts it away
+  var why = rowCannotLaunchReason(s);
+  if (why !== "") {
+    showMsg(why, "warn");
+    return;
+  }
+  insertPanelRow(tr, s, launchPanelHTML(s, null));
+}
+
+// insertPanelRow puts the one panel under the table row `tr` of shape `s`, or at the top of the
+// table when that row is not on screen (a fresh read can drop it from the list). It returns the
+// panel row.
+function insertPanelRow(tr, s, html) {
   var row = document.createElement("tr");
   row.className = "panel-row";
   row.dataset.shapeCode = s.shape_code;
   row.dataset.providerKey = s.provider_key;
   var td = document.createElement("td");
   td.colSpan = TABLE_COLUMNS;
-  var why = rowCannotLaunchReason(s);
-  if (why !== "") {
-    showMsg(why, "warn");
-    return;
-  }
-  td.innerHTML = launchPanelHTML(s, null);
+  td.innerHTML = html;
   row.appendChild(td);
-  tr.parentNode.insertBefore(row, tr.nextSibling);
+  var body = byId("instance-body");
+  if (tr) tr.parentNode.insertBefore(row, tr.nextSibling);
+  else body.insertBefore(row, body.firstChild);
   openLaunchRow = row;
-  var rent = $(".rent", tr);
+  var rent = tr && $(".rent", tr);
   if (rent) rent.setAttribute("aria-expanded", "true");
   row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  return row;
+}
+
+// tableRowOf finds the table row (not a panel row) of a shape, or null.
+function tableRowOf(s) {
+  var found = null;
+  $$("#instance-body tr[data-shape-code]").forEach(function (tr) {
+    if (!tr.classList.contains("panel-row") && tr.dataset.shapeCode === s.shape_code &&
+        tr.dataset.providerKey === s.provider_key) found = tr;
+  });
+  return found;
 }
 
 function shapeOfRow(row) {
@@ -1143,14 +1395,13 @@ function readPanel(panel) {
   };
 }
 
-// launchParams builds the POST /api/launch query for the machine named by providerKey and
-// shapeCode: the panel's own boxes come in as vals, every other setting is read from "What to
-// run" unchanged.
-function launchParams(vals, providerKey, shapeCode) {
+// launchFigures reads every figure a launch sends, except which machine: the panel's own boxes
+// come in as vals, every other setting is read from "What to run". It is called once, at the press
+// of Launch, and the same string goes to the offer read and to whatever the offer then rents, so a
+// box edited while the offer waits changes nothing that was offered.
+function launchFigures(vals) {
   var params =
     "idle_minutes=" + encodeURIComponent(vals.idle) +
-    "&provider=" + encodeURIComponent(providerKey) +
-    "&shape_code=" + encodeURIComponent(shapeCode) +
     "&model=" + encodeURIComponent(byId("model-select").value) +
     "&context=" + encodeURIComponent(byId("ctx").value) +
     "&chats=" + encodeURIComponent(byId("chats").value) +
@@ -1175,52 +1426,149 @@ function launchParams(vals, providerKey, shapeCode) {
       var value = byId(box.id).value;
       if (value !== "") params += "&" + box.param + "=" + encodeURIComponent(value);
     });
-  } else if (byId("batched-tokens").value !== "") {
-    params += "&max_num_batched_tokens=" + encodeURIComponent(byId("batched-tokens").value);
+  } else if (byId("step-budget").value !== "") {
+    params += "&max_num_batched_tokens=" + encodeURIComponent(byId("step-budget").value);
   }
   return params;
 }
 
-// sendLaunch posts the launch and, once the server accepted it, closes the panel. A refusal is
-// shown in the message overlay and puts the buttons back; nothing else is launched.
-async function sendLaunch(vals, providerKey, shapeCode, buttons) {
+// launchParams is the POST /api/launch and GET /api/launch-offer query: the frozen figures plus
+// the machine named by providerKey and shapeCode.
+function launchParams(figures, providerKey, shapeCode) {
+  return "provider=" + encodeURIComponent(providerKey) +
+    "&shape_code=" + encodeURIComponent(shapeCode) + "&" + figures;
+}
+
+// sendLaunch posts the launch (the launch lock is already up). Once the server accepted it the
+// panel closes and the launch lock stays up until watchLaunchClaim sees the machine in "Running
+// now". A refusal or a network failure lifts the lock, shows one message and puts the buttons
+// back; nothing else is launched. It answers true once accepted.
+async function sendLaunch(figures, vals, providerKey, shapeCode, buttons) {
   buttons.forEach(function (b) { b.disabled = true; });
+  var response, body;
   try {
-    var response = await fetch("/api/launch?" + launchParams(vals, providerKey, shapeCode), { method: "POST" });
-    var body = await response.json().catch(function () { return {}; });
-    if (!response.ok) {
-      showMsg(body.detail || ("Could not launch this machine: " + response.status));
-      buttons.forEach(function (b) { b.disabled = false; });
-      return false;
-    }
-    rememberProject(vals.project); // this browser's next launch panel opens on this project
-    // The panel's job was only the confirmation, so it closes once the request is accepted. Then
-    // the page goes to the strip so a person sees the machine start, and asks the strip to
-    // refresh now rather than at its next poll.
-    closeLaunchRow();
-    htmx.trigger(byId("rlist"), "load");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    byId("run-h").focus({ preventScroll: true });
-    return true;
+    response = await fetch("/api/launch?" + launchParams(figures, providerKey, shapeCode), { method: "POST" });
+    body = await response.json().catch(function () { return {}; });
   } catch (e) {
-    showMsg("Could not reach the server to launch this machine.");
+    failLaunch("Could not reach the server to launch this machine. Check the strip before pressing Rent again; a machine may have started.");
     buttons.forEach(function (b) { b.disabled = false; });
     return false;
   }
+  if (!response.ok) {
+    failLaunch(body.detail || ("Could not launch this machine: " + response.status));
+    buttons.forEach(function (b) { b.disabled = false; });
+    return false;
+  }
+  rememberProject(vals.project); // this browser's next launch panel opens on this project
+  // The panel's job was only the confirmation, so it closes once the request is accepted. The
+  // strip is asked to refresh now rather than at its next poll, and the lock waits for it.
+  closeLaunchRow();
+  if (body.claim_id) {
+    watchLaunchClaim(body.claim_id, providerKey, shapeCode);
+  } else {
+    liftLaunchLock();
+    htmx.trigger(byId("rlist"), "refresh");
+  }
+  return true;
+}
+
+// failLaunch ends the launch lock on a failure: one message, and focus back on the pressed
+// machine's Rent button, else the machine list's Refresh button.
+function failLaunch(text, kind) {
+  liftLaunchLock();
+  showMsg(text, kind);
+  var rent = null;
+  if (launchPress) {
+    $$("#instance-body tr[data-shape-code]:not(.panel-row)").forEach(function (tr) {
+      if (tr.dataset.shapeCode === launchPress.shapeCode && tr.dataset.providerKey === launchPress.providerKey) rent = $(".rent", tr);
+    });
+  }
+  (rent || byId("refresh-btn")).focus();
+}
+
+// The claim the launch lock waits on. After the server accepted a launch (202 with its claim id)
+// the machine is not there yet: the provider is asked afterwards. The lock lifts on the first
+// strip swap that holds this claim's card once the claim is past 'asked' (the provider accepted
+// the create), and on a 'refused' claim with the provider's reason. A 'confirmed' claim lifts on
+// the first strip swap after it is seen, because a launch with no model has no serving record
+// and so its card carries no claim id. A failing claim read or strip read is tried again until
+// the ceiling.
+var launchWatch = null; // {claimId, state, detail, providerKey, shapeCode, timer}
+var CLAIM_WATCH_MS = 2000;
+function stopLaunchWatch() {
+  if (launchWatch) clearTimeout(launchWatch.timer);
+  launchWatch = null;
+}
+function watchLaunchClaim(claimId, providerKey, shapeCode) {
+  stopLaunchWatch();
+  var w = launchWatch = { claimId: claimId, state: "asked", detail: "", providerKey: providerKey, shapeCode: shapeCode, timer: null };
+  async function tick() {
+    if (launchWatch !== w) return;
+    try {
+      var r = await fetch("/api/claims/" + encodeURIComponent(w.claimId));
+      if (r.ok) {
+        var c = await r.json();
+        w.state = c.state;
+        w.detail = c.detail || "";
+      }
+    } catch (e) { /* tried again at the next tick */ }
+    if (launchWatch !== w) return;
+    if (checkLaunchWatch(false)) return;
+    htmx.trigger(byId("rlist"), "refresh");
+    w.timer = setTimeout(tick, CLAIM_WATCH_MS);
+  }
+  htmx.trigger(byId("rlist"), "refresh");
+  tick();
+}
+// checkLaunchWatch ends the launch lock when the claim says so; true when it did. afterSwap is
+// true when called from a fresh strip.
+function checkLaunchWatch(afterSwap) {
+  var w = launchWatch;
+  if (!w) return false;
+  if (w.state === "refused" || w.state === "abandoned") {
+    stopLaunchWatch();
+    var who = { runpod: "RunPod", verda: "Verda" }[w.providerKey] || w.providerKey;
+    failLaunch(w.state === "refused"
+      ? who + " refused to create " + w.shapeCode + (w.detail ? ": " + w.detail : ".")
+      : "The launch of " + w.shapeCode + " on " + who + " was given up before a machine appeared.");
+    return true;
+  }
+  if (!afterSwap || w.state === "asked") return false;
+  var card = $('li[data-claim-id="' + w.claimId + '"]', rlist);
+  if (card || w.state === "confirmed") {
+    stopLaunchWatch();
+    liftLaunchLock();
+    return true;
+  }
+  return false;
 }
 
 // fetchLaunchOffer asks the server whether a cheaper machine (auto-move on) or a machine of the
-// same card with fewer cards can serve this launch. It rents nothing. Anything that stops it
-// answering reads as "no offer": the launch pressed then goes ahead as it always did.
+// same card with fewer cards can serve this launch. It rents nothing. The answer, offer or not,
+// also carries the table's rows from the live provider read it made. Anything that stops it
+// answering reads as null, "no offer": the launch pressed then goes ahead as it always did.
 async function fetchLaunchOffer(params) {
   try {
     var response = await fetch("/api/launch-offer?" + params);
     if (!response.ok) return null;
-    var body = await response.json();
-    return body.offer ? body : null;
+    return await response.json();
   } catch (e) {
     return null;
   }
+}
+
+// takeLaunchRead puts the launch offer's provider read into state.shapes, so the table shows the
+// machines the offer saw. It returns true when it did; the caller then redraws the table. A read
+// with a provider missing carries no rows and is not applied (it would drop that provider's rows
+// from the table); its problems are shown instead, as a Refresh would show them.
+function takeLaunchRead(read) {
+  if (!read) return false;
+  (read.availability_problems || []).forEach(function (problem) { showMsg(problem, "warn"); });
+  if (!read.shapes) return false;
+  applyShapes(read.shapes, true);
+  state.loadFailed = false;
+  populateProviderFilter();
+  return true;
 }
 
 // offerHTML is the panel body when Launch found a better machine. offer.cheaper (auto-move on, a
@@ -1272,52 +1620,84 @@ async function doLaunch(btn) {
   var s = shapeOfRow(row);
   if (!s) return;
   var vals = readPanel(panel);
+  var figures = launchFigures(vals); // frozen here: the offer and whatever it rents use these
   var label = btn.textContent;
   var buttons = $$("button", panel);
   buttons.forEach(function (b) { b.disabled = true; });
   btn.textContent = "Launching\u2026";
-  var offer = await fetchLaunchOffer(launchParams(vals, row.dataset.providerKey, row.dataset.shapeCode));
-  if (offer) {
-    var built = offerHTML(offer, vals.project);
-    pendingLaunch = { shape: s, vals: vals, offer: offer, built: built };
-    $("td", row).innerHTML = built.html;
-    byId("offer-h").focus();
-    return;
+  raiseLaunchLock(row.dataset.providerKey, row.dataset.shapeCode);
+  try {
+    var read = await fetchLaunchOffer(launchParams(figures, row.dataset.providerKey, row.dataset.shapeCode));
+    var refreshed = takeLaunchRead(read);
+    var now = refreshed ? shapeOfRow(row) || s : s;
+    if (read && read.offer) {
+      var built = offerHTML(read, vals.project);
+      if (refreshed) {
+        renderTable(); // closes the panel; the offer goes back under the row it was asked for
+        insertPanelRow(tableRowOf(now), now, built.html);
+      } else {
+        $("td", row).innerHTML = built.html;
+      }
+      pendingLaunch = { shape: now, vals: vals, figures: figures, offer: read, built: built };
+      liftLaunchLock(); // the offer waits for a choice; nothing is rented yet
+      byId("offer-h").focus();
+      return;
+    }
+    var accepted = await sendLaunch(figures, vals, row.dataset.providerKey, row.dataset.shapeCode, buttons);
+    if (refreshed) {
+      renderTable();
+      if (!accepted) insertPanelRow(tableRowOf(now), now, launchPanelHTML(now, vals));
+    }
+    if (!accepted) {
+      btn.textContent = label;
+      var go = openLaunchRow && $(".lp-go", openLaunchRow);
+      if (go) go.focus();
+    }
+  } catch (e) {
+    failLaunch("Could not launch this machine: " + (e && e.message ? e.message : "the page hit an error."));
+    buttons.forEach(function (b) { b.disabled = false; });
+    btn.textContent = label;
+  } finally {
+    if (!launchWatch) liftLaunchLock(); // a launch the server accepted keeps the lock until its machine shows
   }
-  var accepted = await sendLaunch(vals, row.dataset.providerKey, row.dataset.shapeCode, buttons);
-  if (!accepted) btn.textContent = label;
 }
 
-// A launch button of the offer: one of the alternatives, or the chosen machine anyway.
+// A launch button of the offer: one of the alternatives, or the chosen machine anyway. The
+// figures are the ones frozen at the press of Launch, so what is rented is what was offered.
 async function onOfferPick(opt) {
   var row = opt.closest(".panel-row");
   var p = pendingLaunch;
   if (!p) return;
   var buttons = $$("button", row);
-  if (opt.classList.contains("opt-chosen")) {
-    var x = p.offer.chosen;
-    if (p.built.cheaper) {
+  var chosen = opt.classList.contains("opt-chosen");
+  var target = chosen ? p.offer.chosen : p.built.alternatives[parseInt(opt.dataset.alt, 10)].m;
+  raiseLaunchLock(target.provider_key, target.shape_code);
+  try {
+    if (chosen && p.built.cheaper) {
       buttons.forEach(function (b) { b.disabled = true; });
+      var response;
       try {
-        var response = await fetch("/api/projects/" + encodeURIComponent(p.vals.project) + "/auto-move?on=false", { method: "POST" });
-        if (!response.ok) {
-          var body = await response.json().catch(function () { return {}; });
-          showMsg((body.detail || "Could not turn auto-move off.") + " Nothing was launched.");
-          buttons.forEach(function (b) { b.disabled = false; });
-          return;
-        }
+        response = await fetch("/api/projects/" + encodeURIComponent(p.vals.project) + "/auto-move?on=false", { method: "POST" });
       } catch (e) {
-        showMsg("Could not reach the server to turn auto-move off. Nothing was launched.");
+        failLaunch("Could not reach the server to turn auto-move off. Nothing was launched.");
+        buttons.forEach(function (b) { b.disabled = false; });
+        return;
+      }
+      if (!response.ok) {
+        var body = await response.json().catch(function () { return {}; });
+        failLaunch((body.detail || "Could not turn auto-move off.") + " Nothing was launched.");
         buttons.forEach(function (b) { b.disabled = false; });
         return;
       }
       loadProjects();
     }
-    sendLaunch(p.vals, x.provider_key, x.shape_code, buttons);
-    return;
+    await sendLaunch(p.figures, p.vals, target.provider_key, target.shape_code, buttons);
+  } catch (e) {
+    failLaunch("Could not launch this machine: " + (e && e.message ? e.message : "the page hit an error."));
+    buttons.forEach(function (b) { b.disabled = false; });
+  } finally {
+    if (!launchWatch) liftLaunchLock();
   }
-  var alt = p.built.alternatives[parseInt(opt.dataset.alt, 10)].m;
-  sendLaunch(p.vals, alt.provider_key, alt.shape_code, buttons);
 }
 
 byId("instance-body").addEventListener("click", function (ev) {
@@ -1382,10 +1762,50 @@ function runningSignature() {
   }).sort().join("|");
 }
 
+// setTabSignal paints the browser tab so a background tab shows whether a meter runs. Warning
+// outranks running outranks idle: a warning means GPUGate cannot say what is billing (a provider
+// could not be asked, or a machine is unconfirmed, or the strip itself failed), and "could not
+// find out" must never look like "nothing is running".
+// The title and icon are written only when they change, so a quiet tab is not repainted.
+function setTabSignal(warn, total, allStarting) {
+  var prefix, icon;
+  if (warn) {
+    prefix = total > 0 ? "(! " + total + ") " : "(!) ";
+    icon = "favicon-warning.svg";
+  } else if (total > 0) {
+    prefix = (allStarting ? "(" + total + " starting)" : "(" + total + ")") + " ";
+    icon = "favicon-running.svg";
+  } else {
+    prefix = "";
+    icon = "favicon.svg";
+  }
+  tabPrefix = prefix;
+  paintTitle();
+  var link = byId("favicon");
+  if (link.getAttribute("href") !== icon) link.setAttribute("href", icon);
+}
+
+// A strip that failed to load (not a 401, which leaves for the login page) leaves the tab in the
+// warning state and one poll message says why; the next good answer withdraws both.
+var STRIP_FAILED_TEXT = "Could not read which machines are running; retrying.";
+function stripFailed() {
+  syncPollMessages([STRIP_FAILED_TEXT]);
+  setTabSignal(true, 0, false);
+  byId("statuspill").className = "pill warn";
+  byId("pilltxt").textContent = "Unknown";
+  byId("statuspill").setAttribute("aria-label", "Machines: not known. The running list could not be read");
+}
+rlist.addEventListener("htmx:responseError", function (ev) {
+  if (ev.detail.xhr && ev.detail.xhr.status === 401) return;
+  stripFailed();
+});
+rlist.addEventListener("htmx:sendError", stripFailed);
+
 // afterRunningSwap reads the fresh strip: the "could not ask" notices move into the message
 // overlay, and the status pill and menu count are painted from the machine cards.
 function afterRunningSwap() {
   var texts = [];
+  var failedAsks = $$("li.notice", rlist).length;
   $$("li.notice", rlist).forEach(function (li) {
     texts.push(li.textContent);
     li.remove();
@@ -1401,6 +1821,7 @@ function afterRunningSwap() {
   var pill = byId("statuspill");
   var text, cls = "pill";
   if (count.unconfirmed > 0) { text = "Unconfirmed"; cls += " warn"; }
+  else if (total === 0 && failedAsks > 0) { text = "Unknown"; cls += " warn"; }
   else if (total === 0) { text = "Idle"; cls += " pill-idle"; }
   else if (count.starting === total) { text = total + " starting"; cls += " warn"; }
   else { text = total + " running"; if (count.serving + count.running !== total) cls += " warn"; }
@@ -1412,14 +1833,19 @@ function afterRunningSwap() {
   if (count.starting) parts.push(count.starting + " starting up");
   if (count.running) parts.push(count.running + " running");
   if (count.unconfirmed) parts.push(count.unconfirmed + " unconfirmed");
-  pill.setAttribute("aria-label", "Machines: " + (parts.length ? parts.join(", ") : "none running"));
+  var ariaText = parts.length ? parts.join(", ") : (failedAsks > 0 ? "not known" : "none running");
+  if (failedAsks > 0) ariaText += ". A provider could not be asked";
+  pill.setAttribute("aria-label", "Machines: " + ariaText);
   byId("navcount").textContent = total === 0 ? "" : text;
+  setTabSignal(failedAsks > 0 || count.unconfirmed > 0, total, count.starting === total);
 
   if (refocusIdle) {
     var box = $('.idleinp[data-provider-key="' + refocusIdle.providerKey + '"][data-provider-id="' + refocusIdle.providerId + '"]', rlist);
     if (box) box.focus();
     refocusIdle = null;
   }
+
+  checkLaunchWatch(true);
 
   var signature = runningSignature();
   if (lastRunningSignature !== null && signature !== lastRunningSignature) loadProjects();
@@ -1444,7 +1870,7 @@ rlist.addEventListener("change", async function (ev) {
   var minutes = parseInt(input.value, 10);
   if (isNaN(minutes) || minutes < 0) {
     showMsg("Could not change the idle limit: it must be 0 or more (0 means never).");
-    htmx.trigger(rlist, "load");
+    htmx.trigger(rlist, "refresh");
     return;
   }
   input.disabled = true;
@@ -1463,7 +1889,7 @@ rlist.addEventListener("change", async function (ev) {
   } finally {
     input.disabled = false;
     refocusIdle = { providerKey: input.dataset.providerKey, providerId: input.dataset.providerId };
-    htmx.trigger(rlist, "load");
+    htmx.trigger(rlist, "refresh");
   }
 });
 
@@ -1488,7 +1914,7 @@ rlist.addEventListener("click", function (ev) {
       );
       var body = await response.json().catch(function () { return {}; });
       if (!response.ok) return "Could not destroy " + name + ": " + (body.detail || response.status);
-      htmx.trigger(rlist, "load");
+      htmx.trigger(rlist, "refresh");
       return null;
     }
   });
@@ -1535,14 +1961,14 @@ function renderProjectsBlock() {
       '<div class="addr"><code>' + escapeHtml(address) + '</code><button class="btn sm copy" type="button" data-a="' + escapeHtml(address) +
       '" aria-label="Copy the address of ' + escapeHtml(p.name) + '">Copy</button></div>' +
       '<div class="field"><div class="lab"><label class="switch"><input type="checkbox" role="switch" id="auto-move-' + escapeHtml(p.slug) + '" name="auto_move_' +
-      escapeHtml(p.slug) + '" autocomplete="off" class="project-auto-move-box" data-slug="' +
+      escapeHtml(p.slug) + '" ' + NOFILL + ' class="project-auto-move-box" data-slug="' +
       escapeHtml(p.slug) + '"' + (p.auto_move ? " checked" : "") + "><span>Auto-move to a cheaper machine</span></label>" +
       infoButton(noteId, "auto-move for " + p.name) + "</div>" +
       '<p class="note" id="' + noteId + '" hidden>' + escapeHtml(AUTO_MOVE_ABOUT) + "</p></div>" +
       '<div class="field"><div class="lab"><label for="price-cap-' + escapeHtml(p.slug) + '">Most per hour, US dollars</label>' +
       infoButton("cap-note-" + escapeHtml(p.slug), "the price cap for " + p.name) + "</div>" +
       '<div class="savebox"><input type="text" id="price-cap-' + escapeHtml(p.slug) + '" name="price_cap_' + escapeHtml(p.slug) +
-      '" inputmode="decimal" autocomplete="off" placeholder="no cap" class="project-cap-box" data-slug="' +
+      '" inputmode="decimal" ' + NOFILL + ' placeholder="no cap" class="project-cap-box" data-slug="' +
       escapeHtml(p.slug) + '" value="' + escapeHtml(capValue) + '" aria-describedby="cap-note-' + escapeHtml(p.slug) + '">' +
       '<span class="saved-icon" id="cap-saved-' + escapeHtml(p.slug) + '" aria-hidden="true">' + CHECK_ICON + "</span>" +
       '<span class="sr-only" id="cap-sr-' + escapeHtml(p.slug) + '" role="status"></span></div>' +
@@ -1848,12 +2274,17 @@ document.addEventListener("keydown", function (ev) {
   if (!modalBg.hidden) closeConfirm();
   else if (logOpen()) setLogOpen(false);
   else if (navEl.classList.contains("open")) { setNav(false); byId("ham").focus(); }
+  else {
+    var info = openInfoButton();
+    if (info) { info.click(); info.focus(); }
+  }
 });
 
 // init builds the parts of the page that are generated, paints the first state, and starts the
 // loads and polls. The running strip and the sessions list start themselves through htmx.
 function init() {
   initTheme();
+  initMachineFilters();
   syncNav();
   route();
   byId("origin").textContent = location.host;
@@ -1861,7 +2292,7 @@ function init() {
   buildModelSettingBoxes();
   buildBatchBoxes();
   paintFieldNotes();
-  refreshMachineTable();  // the table loads when the page opens, as if Refresh were pressed
+  openLaunchPath();  // the table loads when the page opens, as if Refresh were pressed, under the lock
   updateSortIndicators();  // the default sort has a caret from the first paint, not the first click
   loadProjects();
   pollLog();

@@ -37,6 +37,32 @@ func (s *Server) handleIdleMinutes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"minutes": minutes})
 }
 
+// handleClaimState answers GET /api/claims/{id}: where one launch stands, for the page's launch
+// lock, which waits on its own claim. `detail` is the provider's stored reason and is sent only
+// for a refused claim; every other claim's detail is our own note and stays on the server.
+func (s *Server) handleClaimState(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeRefusal(w, http.StatusBadRequest, "The claim id must be a whole number.")
+		return
+	}
+	c, found, err := s.store.GetClaim(id)
+	if err != nil {
+		s.log.Add("console", "could not read claim "+strconv.FormatInt(id, 10)+": "+err.Error())
+		writeRefusal(w, http.StatusInternalServerError, "Could not read that claim.")
+		return
+	}
+	if !found {
+		writeRefusal(w, http.StatusNotFound, "No claim with that id is on file.")
+		return
+	}
+	detail := ""
+	if c.State == "refused" && c.Detail != nil {
+		detail = *c.Detail
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"claim_id": c.ID, "state": c.State, "detail": detail})
+}
+
 // handleRunning answers GET /api/running: the HTML fragment htmx swaps into `#rlist`, followed by
 // an out-of-band `#runstamp` chip saying when both providers last answered (hidden while any
 // provider could not be asked). It asks no provider anything itself: it reads what the live poll
@@ -198,7 +224,7 @@ func startingUpLI(c store.Claim) string {
 	default:
 		sub += " \u00b7 waiting for " + providerLabel(c.ProviderKey) + " to answer the create request"
 	}
-	return `<li class="card mach loading" data-run="starting">` +
+	return `<li class="card mach loading" data-run="starting" data-claim-id="` + strconv.FormatInt(c.ID, 10) + `">` +
 		`<div class="mtop"><span class="chip wait"><span class="dot"></span>Starting up</span></div>` +
 		`<div class="name mono">` + html.EscapeString(c.ShapeCode) + `</div>` +
 		`<p class="sub">` + html.EscapeString(sub) + `</p>` +
@@ -359,7 +385,13 @@ func (s *Server) runningMachineLI(m provider.RunningMachine, confirmed bool, las
 	if idleControl == "" {
 		idleControl = `<span></span>`
 	}
-	return `<li class="card mach ` + cardClass + `" data-run="` + runKind + `">` +
+	claimAttr := ""
+	if haveInfo {
+		// Only a machine with a serving record is known to its claim; one without it (an
+		// unconfirmed note, a machine nobody launched here) cannot be matched to a launch.
+		claimAttr = ` data-claim-id="` + strconv.FormatInt(info.ClaimID, 10) + `"`
+	}
+	return `<li class="card mach ` + cardClass + `" data-run="` + runKind + `"` + claimAttr + `>` +
 		`<div class="mtop"><span class="chip ` + chipClass + `"><span class="dot"></span>` + html.EscapeString(capitalFirst(chipText)) + `</span></div>` +
 		`<div class="name mono">` + html.EscapeString(detail) + `</div>` +
 		`<p class="sub">` + subHTML + `</p>` +

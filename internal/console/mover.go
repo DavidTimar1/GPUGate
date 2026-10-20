@@ -43,6 +43,11 @@ const (
 	// provider answer, with no destroy recorded, before it counts as gone (one miss can be a
 	// stale answer).
 	moveOldGoneChecksNeeded = 3
+	// moveReadFailuresGiveUp is how many looks in a row may fail to read the move's two claims
+	// before the move is failed and its new machine destroyed: 20 looks of movePollInterval is five
+	// minutes. A move that cannot read its own claims can decide nothing, and its new machine bills
+	// the whole time.
+	moveReadFailuresGiveUp = 20
 )
 
 // requestStarted and requestEnded count the requests the fixed address is forwarding to ref.
@@ -117,7 +122,7 @@ func (s *Server) moverPass() {
 		s.considerMove(slug, func() []provider.Shape {
 			if !asked {
 				asked = true
-				shapes = s.liveShapesForMover()
+				shapes, _ = s.liveShapesForMover()
 			}
 			return shapes
 		})
@@ -125,10 +130,13 @@ func (s *Server) moverPass() {
 }
 
 // liveShapesForMover reads every provider's shapes live, never the page's cache. A provider that
-// cannot be asked is logged as "could not ask" and contributes nothing: that is never read as
-// "nothing is cheaper".
-func (s *Server) liveShapesForMover() []provider.Shape {
+// cannot be asked is logged as "could not ask", contributes nothing, and is named in the second
+// answer: that is never read as "nothing is cheaper". The launch offer puts this read on the page
+// and into the recalculation cache only when the second answer is empty (a partial read would
+// drop that provider's rows).
+func (s *Server) liveShapesForMover() ([]provider.Shape, []string) {
 	var all []provider.Shape
+	var problems []string
 	for _, p := range s.providers {
 		if !p.CredentialsConfigured() {
 			continue
@@ -138,11 +146,12 @@ func (s *Server) liveShapesForMover() []provider.Shape {
 		cancel()
 		if err != nil {
 			s.log.Add("move", "could not ask "+p.DisplayName()+" what it offers, so it was not looked at for a cheaper machine: "+err.Error())
+			problems = append(problems, p.DisplayName()+" could not be asked: "+err.Error())
 			continue
 		}
 		all = append(all, shapes...)
 	}
-	return all
+	return all, problems
 }
 
 // logNoCheaperOnce writes why a look found no cheaper machine for a claim, once per claim per
@@ -287,7 +296,10 @@ func (s *Server) considerMove(project string, liveShapes func() []provider.Shape
 // has auto-move on. "fewer" is the cheapest ticked machine of the same card with fewer cards that
 // holds the same launch (fewerCardsCandidate), asked only when the chosen machine has more than
 // one card, whether or not auto-move is on. Any failure to find out answers "no offer" with the
-// reason in the log, so the launch that was asked for is never held up.
+// reason in the log, so the launch that was asked for is never held up. Every answer, offer or
+// not, also carries "shapes": the table's rows from the same live read (see liveShapesForMover),
+// which the page puts on screen so the table never disagrees with what the offer just saw. A
+// complete read also becomes the recalculation cache (cachedFrom), as GET /api/machines does.
 func (s *Server) handleLaunchOffer(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	providerKey, shapeCode, project, modelName := q.Get("provider"), q.Get("shape_code"), q.Get("project"), q.Get("model")
@@ -304,14 +316,38 @@ func (s *Server) handleLaunchOffer(w http.ResponseWriter, r *http.Request) {
 	if where == "" {
 		where = "any"
 	}
-	noOffer := func() { writeJSON(w, http.StatusOK, map[string]any{"offer": false}) }
 	on, err := s.store.AutoMoveProjects()
 	if err != nil {
 		s.log.Add("console", "could not read which projects have auto-move on, so no cheaper machine is offered for this launch: "+err.Error())
 		on = nil
 	}
 	autoMoveOn := slices.Contains(on, project)
-	shapes := s.liveShapesForMover()
+	shapes, problems := s.liveShapesForMover()
+	// The answer carries the table's rows from this same read, so the page can show what the offer
+	// saw. They are left out when a provider could not be asked: a partial read would drop that
+	// provider's rows from the table.
+	answer := map[string]any{"availability_problems": emptyIfNil(problems)}
+	if len(problems) == 0 {
+		model, _ := s.modelForFit(modelName)
+		plan := fit.Plan{ContextTokens: fit.ContextTokensFromThousands(ctxThousands), ConcurrentChats: chats}
+		byPrice := slices.Clone(shapes)
+		sortByPrice(byPrice)
+		if rows, err := s.tableRows(byPrice, model, plan); err != nil {
+			s.log.Add("console", "could not read the shape ticks for the launch offer's table rows: "+err.Error())
+		} else {
+			answer["shapes"] = rows
+			// The page puts these rows on screen, so the recalculation cache takes the same read: a
+			// later GET /api/models must judge the rows the table shows.
+			s.cacheMu.Lock()
+			s.cachedFrom = byPrice
+			s.haveCache = true
+			s.cacheMu.Unlock()
+		}
+	}
+	noOffer := func() {
+		answer["offer"] = false
+		writeJSON(w, http.StatusOK, answer)
+	}
 	var chosen *provider.Shape
 	for i := range shapes {
 		if shapes[i].ProviderKey == providerKey && shapes[i].Code == shapeCode {
@@ -338,7 +374,8 @@ func (s *Server) handleLaunchOffer(w http.ResponseWriter, r *http.Request) {
 			"gpu_count": sh.GPUCount, "price_per_hour": *sh.OnDemandPricePerHour,
 		}
 	}
-	answer := map[string]any{"chosen": describe(*chosen), "auto_move_on": autoMoveOn}
+	answer["chosen"] = describe(*chosen)
+	answer["auto_move_on"] = autoMoveOn
 	if autoMoveOn {
 		// ID 0: this is not a running claim; the price and shape code are all the rule reads of it.
 		asClaim := store.Claim{ShapeCode: shapeCode, PricePerHour: chosen.OnDemandPricePerHour}
@@ -554,7 +591,9 @@ func (s *Server) startMove(project string, old store.Claim, req launchRequest, c
 	newReq.ShapeCode = candidate.Code
 	// The new machine keeps the old machine's idle timeout as it stands now, which the user may
 	// have changed on the strip since the launch request was stored.
-	if current, found, err := s.store.GetClaim(old.ID); err == nil && found {
+	if current, found, err := s.store.GetClaim(old.ID); err != nil {
+		s.log.Add("move", "could not read claim "+strconv.FormatInt(old.ID, 10)+" for its idle timeout, so the new machine takes the launch request's: "+err.Error())
+	} else if found {
 		idle := current.IdleMinutes
 		newReq.IdleMinutes = &idle
 	}
@@ -675,6 +714,8 @@ func (s *Server) runMove(m store.Move) {
 	// while it has not. A failed answer resets it.
 	var cleanSince time.Time
 	failingLogged := false
+	readFailures := 0
+	readGiveUpLogged := false
 	first := true
 	for {
 		if !first {
@@ -685,18 +726,52 @@ func (s *Server) runMove(m store.Move) {
 		oldClaim, haveOld, err := s.store.GetClaim(m.OldClaimID)
 		newClaim, haveNew, err2 := s.store.GetClaim(m.NewClaimID)
 		if err != nil || err2 != nil || !haveOld || !haveNew {
-			s.log.Add("move", moveText+": could not read its claims; trying again.")
+			readFailures++
+			cause := "a claim is missing"
+			if err != nil {
+				cause = err.Error()
+			} else if err2 != nil {
+				cause = err2.Error()
+			}
+			s.log.Add("move", moveText+": could not read its claims ("+strconv.Itoa(readFailures)+" looks in a row): "+cause)
+			if readFailures >= moveReadFailuresGiveUp {
+				// The wide read is what is failing, so the new machine is named by a short read of
+				// its own. Only a move that can name it is failed: closing a move whose new machine
+				// cannot be named would leave it billing with nobody looking.
+				newMachine, found, mErr := s.store.GetClaimMachine(m.NewClaimID)
+				if mErr == nil && found {
+					s.log.Add("move", moveText+": its claims could not be read for "+strconv.Itoa(readFailures)+" looks in a row, so the move is failed and the new machine destroyed.")
+					s.failMove(m, newMachine, "its claims could not be read for "+strconv.Itoa(readFailures)+" looks in a row")
+					return
+				}
+				if !readGiveUpLogged {
+					s.log.Add("move", moveText+": the new machine's claim cannot be read either, so the move cannot be failed and is kept; trying again every look.")
+					readGiveUpLogged = true
+				}
+			}
 			continue
 		}
+		readFailures = 0
 
 		// The old machine going away during the move (Delete, the inactivity timeout, the provider)
 		// is tolerated: before the switch the move is abandoned and the new machine destroyed,
-		// because nobody is left to serve; after it, the move is finished.
+		// because nobody is left to serve, unless the new machine already serves and is listed, in
+		// which case it is kept and the move is finished; after the switch, the move is finished.
 		oldGone := s.moveOldIsGone(oldClaim, &oldMisses)
 
 		switch m.State {
 		case "starting":
 			if oldGone {
+				// The new machine is kept when it already serves and a fresh answer lists it: it is
+				// then the project's only machine, and destroying it would leave nothing serving.
+				if newClaim.ServingState == "serving" {
+					if live, _ := s.machineLiveNow(newClaim.ProviderKey, derefString(newClaim.ProviderID)); live {
+						s.carryQuietClock(oldClaim, newClaim)
+						s.log.Add("move", moveText+": the old machine went away while the new "+newClaim.ShapeCode+" serves, so the new machine is kept and the move is done.")
+						s.finishDrained(m, moveText, "the old machine went away and the new one serves")
+						return
+					}
+				}
 				s.log.Add("move", moveText+": the old machine is gone before the new one served, so the move is dropped and the new machine destroyed.")
 				s.failMove(m, newClaim, "the old machine went away before the new one served")
 				return
@@ -842,23 +917,37 @@ func (s *Server) moveNewIsGone(newClaim store.Claim, misses *int) bool {
 // carry the old machine's quiet clock onto the new claim, so the inactivity timeout measures the
 // project's own quiet time across a move, and write the state down.
 func (s *Server) switchMove(m *store.Move, oldClaim, newClaim store.Claim) {
-	oldID := derefString(oldClaim.ProviderID)
-	info := s.allServingInfo()[oldID]
-	quiet := s.quietSince(info)
-	s.lastOutputMu.Lock()
-	if at, ok := s.lastOutputAt[machineRef{oldClaim.ProviderKey, oldID}]; ok && at.After(quiet) {
-		quiet = at
-	}
-	s.lastOutputMu.Unlock()
-	if err := s.store.SetClaimLastOutputAt(newClaim.ID, quiet.UTC().Format(store.TimeLayout)); err != nil {
-		s.log.Add("move", "could not carry the quiet clock onto claim "+strconv.FormatInt(newClaim.ID, 10)+": "+err.Error())
-	}
+	s.carryQuietClock(oldClaim, newClaim)
 	if err := s.store.MarkMoveDraining(m.ID); err != nil {
 		s.log.Add("move", "could not record that move "+strconv.FormatInt(m.ID, 10)+" switched: "+err.Error())
 	}
 	m.State = "draining"
 	m.SwitchedAt = time.Now().UTC().Format(store.TimeLayout)
 	s.log.Add("move", "move "+strconv.FormatInt(m.ID, 10)+" of project '"+m.Project+"': "+newClaim.ShapeCode+" serves and now takes the project's requests; the old "+oldClaim.ShapeCode+" is destroyed once the new one has answered its model list on every look for a minute and nothing is in flight on the old one.")
+}
+
+// carryQuietClock writes the old machine's quiet-since moment onto the new claim as its
+// last_output_at. An old machine whose claim is no longer listed as loading or serving has no
+// quiet clock to carry (quietSince would fall back to this process's start, which is later than
+// the truth), so the new claim keeps its own serving_since.
+func (s *Server) carryQuietClock(oldClaim, newClaim store.Claim) {
+	oldID := derefString(oldClaim.ProviderID)
+	info, listed := s.allServingInfo()[oldID]
+	var quiet time.Time
+	if listed {
+		quiet = s.quietSince(info)
+	}
+	s.lastOutputMu.Lock()
+	if at, ok := s.lastOutputAt[machineRef{oldClaim.ProviderKey, oldID}]; ok && at.After(quiet) {
+		quiet = at
+	}
+	s.lastOutputMu.Unlock()
+	if quiet.IsZero() {
+		return
+	}
+	if err := s.store.SetClaimLastOutputAt(newClaim.ID, quiet.UTC().Format(store.TimeLayout)); err != nil {
+		s.log.Add("move", "could not carry the quiet clock onto claim "+strconv.FormatInt(newClaim.ID, 10)+": "+err.Error())
+	}
 }
 
 // destroyOldOfMove destroys the old machine through the normal destroy path (intent first;

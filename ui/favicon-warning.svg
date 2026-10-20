@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<style>
+.c{fill:#3454d1}
+.s{stroke:#3454d1}
+.k{fill:#f5f6f8}
+.a{fill:#e8a400}
+.i{fill:#171a21}
+.o{stroke:#f5f6f8}
+@media (prefers-color-scheme:dark){.c{fill:#8ea0ff}.s{stroke:#8ea0ff}.k{fill:#0e1013}.a{fill:#e8bb5a}.i{fill:#10131c}.o{stroke:#0e1013}}
+</style>
+<rect class="c" x="2" y="9" width="28" height="15" rx="2.5"/>
+<circle class="k" cx="11" cy="16.5" r="4.5"/>
+<circle class="c" cx="11" cy="16.5" r="1.8"/>
+<rect class="k" x="19" y="13" width="7" height="3" rx="1"/>
+<rect class="k" x="19" y="18" width="7" height="3" rx="1"/>
+<path class="s" d="M6 27.5h20" stroke-width="3" stroke-dasharray="3 2" fill="none"/>
+<path class="a o" d="M22 2L29.5 15H14.5Z" stroke-width="2.5" stroke-linejoin="round"/>
+<rect class="i" x="21" y="6.5" width="2" height="5" rx="1"/>
+<circle class="i" cx="22" cy="13" r="1.2"/>
+</svg>

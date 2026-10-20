@@ -8,7 +8,7 @@ Only the latest release of GPUGate is looked at. Older versions are not patched,
 
 Please report security problems privately, never in a public issue. Use GitHub's private vulnerability reporting: "Report a vulnerability" under the repository's Security tab.
 
-Include what you found, how to reproduce it, and the impact you expect. GPUGate is not maintained (see [CONTRIBUTING.md](CONTRIBUTING.md)), so a report may go unanswered and there is no promised time for a fix. Please allow reasonable time before any public disclosure.
+Include what you found, how to reproduce it, and the impact you expect. GPUGate is a hobby project with no time set aside to maintain it (see [CONTRIBUTING.md](CONTRIBUTING.md)), so a report may go unanswered and there is no promised time for a fix. Please allow reasonable time before any public disclosure.
 
 ## Scope notes
 
